@@ -1,8 +1,31 @@
-#--------------------------------------------------------------------------
+# Copyright (C) 2000-2012 by George Williams
+# Copyright (C) 2012 by Barry Schwartz
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# The name of the author may not be used to endorse or promote products
+# derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+# EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+# OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-FF_VERSION = 1
-FF_REVISION = 0
-FF_AGE = 0
+include $(top_srcdir)/mk/layout.am
 
 #--------------------------------------------------------------------------
 
@@ -19,6 +42,12 @@ endif NATIVE_SCRIPTING
 endif THE_PROGRAMS
 
 lib_LTLIBRARIES = libfontforge.la libfontforgeexe.la
+
+#--------------------------------------------------------------------------
+
+macobjective.o: macobjective.m
+	clang -g -arch x86_64 -arch i386 -c "${srcdir}/macobjective.m" -o macobjective.o
+
 
 #--------------------------------------------------------------------------
 
@@ -39,31 +68,30 @@ sfddiff: sfddiff.pe
 	chmod +x sfddiff
 
 .pre.c:
-	$(SED) -e '1,$$ s/REPLACE_ME_WITH_MAJOR_VERSION/$(FF_VERSION)/'  \
-	       -e '1,$$ s/REPLACE_ME_WITH_MINOR_VERSION/$(FF_REVISION)/' \
+	$(SED) -e '1,$$ s/REPLACE_ME_WITH_MAJOR_VERSION/$(VERSION_MAJOR)/'	\
+	       -e '1,$$ s/REPLACE_ME_WITH_MINOR_VERSION/$(VERSION_MINOR)/'	\
 	    < $< > $@
 
 #--------------------------------------------------------------------------
 
 noinst_HEADERS = fontforgeui.h sftextfieldP.h configure-fontforge.h	\
-	views.h
+	views.h is_LIGATURE.h flaglist.h
 pkginclude_HEADERS = autowidth2.h configure-fontforge.h fontforge.h		\
 	libffstamp.h psfont.h stemdb.h autowidth.h delta.h fontforgevw.h	\
-	lookups.h savefont.h ttf.h baseviews.h fvmetrics.h mm.h				\
+	lookups.h savefont.h ttf.h baseviews.h fvmetrics.h mm.h			\
 	scriptfuncs.h ttfinstrs.h edgelist2.h namehash.h scripting.h		\
 	uiinterface.h bezctx_ff.h edgelist.h groups.h nonlineartrans.h		\
 	sd.h unicoderange.h bitmapcontrol.h encoding.h ofl.h search.h		\
-	usermenu.h fffreetype.h PfEd.h sfd1.h ffpython.h import.h			\
-	plugins.h sflayoutP.h print.h splinefont.h
+	usermenu.h fffreetype.h PfEd.h sfd1.h ffpython.h			\
+	plugins.h sflayoutP.h print.h splinefont.h annotations.h cvruler.h
 
 #--------------------------------------------------------------------------
 
 if THE_PROGRAMS
 
 fontforge_SOURCES = main.c
-fontforge_CPPFLAGS = "-I$(top_builddir)/inc" "-I$(top_srcdir)/inc"	\
-	$(MY_CFLAGS)
-fontforge_LDADD = libfontforgeexe.la
+fontforge_CPPFLAGS = $(AM_CPPFLAGS)
+fontforge_LDADD = libfontforgeexe.la libfontforge.la $(LDADD)
 fontforge_LDFLAGS = $(MY_CFLAGS) $(MY_LIBS) -export-dynamic
 
 endif THE_PROGRAMS
@@ -87,75 +115,42 @@ libfontforge_la_SOURCES = asmfpst.c autohint.c autosave.c autotrace.c	\
 	tottfaat.c tottfgpos.c tottf.c tottfvar.c ttfinstrs.c				\
 	ttfspecial.c ufo.c unicoderange.c utils.c winfonts.c zapfnomen.c	\
 	groups.c langfreq.c ftdelta.c autowidth2.c woff.c stamp.c			\
-	activeinui.c
+	activeinui.c pluginloading.c is_LIGATURE.c flaglist.c
 nodist_libfontforge_la_SOURCES = libstamp.c
 EXTRA_libfontforge_la_SOURCES = splinerefigure.c
 
-libfontforge_la_CPPFLAGS = "-I$(top_builddir)/inc"					\
-	"-I$(top_srcdir)/inc" "-DSHAREDIR=\"${pkgdatadir}\""			\
-	"-DDOCDIR=\"${docdir}\"" "-DPLUGINDIR=\"${pkglibdir}/plugins\""	\
-	$(MY_CFLAGS)
-
-libfontforge_la_LIBADD = splinerefigure.lo						\
-	$(top_builddir)/pluginloading/libfontforgepluginloading.la	\
-	$(top_builddir)/Unicode/libgunicode.la						\
-	$(top_builddir)/gutils/libgutils.la							\
-	$(top_builddir)/gutils/libgioftp.la
-
-if GRAPHICAL_USER_INTERFACE
-libfontforge_la_LIBADD += $(top_builddir)/gdraw/libgdraw.la	\
-	$(XINPUT_LIBS) $(XKB_LIBS)
-endif GRAPHICAL_USER_INTERFACE
+libfontforge_la_CPPFLAGS = $(AM_CPPFLAGS)
+libfontforge_la_LIBADD = splinerefigure.lo $(LIBADD) $(LIBLTDL)
 
 if PLUGIN_GB12345
 libfontforge_la_LIBADD += -dlopen $(top_builddir)/plugins/gb12345.la
 endif PLUGIN_GB12345
 
-if PLUGGIFLIB
-libfontforge_la_LIBADD += -dlopen $(top_builddir)/plugins/pluggiflib.la
-endif PLUGGIFLIB
+# Using -release instead of -version-info seems appropriate in the
+# absence of a well defined ABI.
+libfontforge_la_LDFLAGS = $(MY_CFLAGS) $(MY_LIBS) -release $(VERSION)
 
-if PLUGLIBJPEG
-libfontforge_la_LIBADD += -dlopen $(top_builddir)/plugins/pluglibjpeg.la
-endif PLUGLIBJPEG
+EXTRA_SCRIPTS = generate_codepoint_selector.py
 
-if PLUGLIBPNG
-libfontforge_la_LIBADD += -dlopen $(top_builddir)/plugins/pluglibpng.la
-endif PLUGLIBPNG
-
-if PLUGLIBTIFF
-libfontforge_la_LIBADD += -dlopen $(top_builddir)/plugins/pluglibtiff.la
-endif PLUGLIBTIFF
-
-if PLUGLIBXML
-libfontforge_la_LIBADD += -dlopen $(top_builddir)/plugins/pluglibxml.la
-endif PLUGLIBXML
-
-if PLUGLIBUNINAMESLIST
-libfontforge_la_LIBADD += -dlopen $(top_builddir)/plugins/pluglibuninameslist.la
-endif PLUGLIBUNINAMESLIST
-
-#if PLUGLIBUNINAMESLISTFR
-#libfontforge_la_LIBADD += -dlopen $(top_builddir)/plugins/pluglibuninameslistfr.la
-#endif PLUGLIBUNINAMESLISTFR
-
-if PLUGLIBSPIRO
-libfontforge_la_LIBADD += -dlopen $(top_builddir)/plugins/pluglibspiro.la
-endif PLUGLIBSPIRO
-
-libfontforge_la_LDFLAGS = $(MY_CFLAGS) $(MY_LIBS) -version-info	\
-	"$(FF_VERSION):$(FF_REVISION):$(FF_AGE)"
+# "make is_LIGATURE" or "make -C fontforge is_LIGATURE" to regenerate
+# is_LIGATURE.[ch]. You need LibUnicodeNames with Python bindings, and
+# you need cproto.
+is_LIGATURE:
+	$(PYTHON) $(srcdir)/generate_codepoint_selector.py \
+		'LIGATURE|VULGAR FRACTION' \
+		is_LIGATURE_or_VULGAR_FRACTION > $(srcdir)/is_LIGATURE.c
+	$(CPROTO) $(srcdir)/is_LIGATURE.c > $(srcdir)/is_LIGATURE.h
 
 #--------------------------------------------------------------------------
 
 if GRAPHICAL_USER_INTERFACE
 
-libfontforgeexe_la_SOURCES = alignment.c anchorsaway.c				\
+libfontforgeexe_la_SOURCES = alignment.c anchorsaway.c   \
 	autowidth2dlg.c basedlg.c bdfinfo.c bitmapdlg.c bitmapview.c	\
 	charinfo.c charview.c clipui.c combinations.c contextchain.c	\
 	cursors.c cvaddpoints.c cvdebug.c cvdgloss.c cvexportdlg.c		\
 	cvfreehand.c cvgetinfo.c cvgridfit.c cvhand.c cvhints.c			\
-	cvimportdlg.c cvknife.c cvpalettes.c cvpointer.c cvruler.c		\
+	cvimportdlg.c cvknife.c cvpalettes.c cvpointer.c cvruler.c 		\
 	cvshapes.c cvstroke.c cvtranstools.c displayfonts.c effectsui.c	\
 	encodingui.c fontinfo.c fontview.c freetypeui.c fvfontsdlg.c	\
 	fvmetricsdlg.c gotodlg.c groupsdlg.c histograms.c images.c		\
@@ -165,7 +160,7 @@ libfontforgeexe_la_SOURCES = alignment.c anchorsaway.c				\
 	scstylesui.c searchview.c sftextfield.c showatt.c simplifydlg.c	\
 	splashimage.c startui.c statemachine.c tilepath.c transform.c	\
 	ttfinstrsui.c uiutil.c windowmenu.c justifydlg.c deltaui.c		\
-	usermenu.c
+	usermenu.c macobjective.h
 
 else !GRAPHICAL_USER_INTERFACE
 
@@ -175,10 +170,34 @@ endif !GRAPHICAL_USER_INTERFACE
 
 nodist_libfontforgeexe_la_SOURCES = exelibstamp.c
 
-libfontforgeexe_la_CPPFLAGS = $(libfontforge_la_CPPFLAGS)
-libfontforgeexe_la_LIBADD = libfontforge.la $(LTDLDEPS)
-libfontforgeexe_la_LDFLAGS = $(MY_CFLAGS) $(MY_LIBS) -version-info	\
-	"$(FF_VERSION):$(FF_REVISION):$(FF_AGE)"
+if MACINTOSH
+MACFFEXE_LIBADD=macobjective.o
+endif MACINTOSH
+
+libfontforgeexe_la_CPPFLAGS = $(AM_CPPFLAGS)
+libfontforgeexe_la_LIBADD = libfontforge.la $(LTDLDEPS) $(LIBADD) $(GUILIBADD) $(MACFFEXE_LIBADD)
+
+# Using -release instead of -version-info seems appropriate in the
+# absence of a well defined ABI.
+libfontforgeexe_la_LDFLAGS = $(MY_CFLAGS) $(MY_LIBS) -release $(VERSION)
+
+#--------------------------------------------------------------------------
+
+LIBADD = $(top_builddir)/Unicode/libgunicode.la	\
+	$(top_builddir)/gutils/libgutils.la			\
+	$(top_builddir)/gutils/libgioftp.la
+
+GUILIBADD =
+if GRAPHICAL_USER_INTERFACE
+GUILIBADD += $(top_builddir)/gdraw/libgdraw.la $(XINPUT_LIBS)	\
+	$(XKB_LIBS)
+endif GRAPHICAL_USER_INTERFACE
+
+LDADD = $(LIBADD) $(GUILIBADD)
+
+AM_CPPFLAGS = "-I$(top_builddir)/inc" "-I$(top_srcdir)/inc"		\
+	"-DSHAREDIR=\"${MY_SHAREDIR}\"" "-DDOCDIR=\"${MY_DOCDIR}\""	\
+	"-DPLUGINDIR=\"${MY_PLUGINDIR}\"" $(MY_CFLAGS)
 
 #--------------------------------------------------------------------------
 
@@ -186,13 +205,52 @@ libfontforgeexe_la_LDFLAGS = $(MY_CFLAGS) $(MY_LIBS) -version-info	\
 # optimization turns out to have disastrous effects. Compile it
 # without optimization.
 splinerefigure.lo: $(srcdir)/splinerefigure.c $(srcdir)/splinefont.h
-	$(LIBTOOL) --mode=compile $(CC) -g -DHAVE_CONFIG_H -c -o	\
-		splinerefigure.lo $(libfontforge_la_CPPFLAGS)			\
-		$(srcdir)/splinerefigure.c
+	$(LIBTOOL) --mode=compile $(CC) -g -c -o		\
+		splinerefigure.lo $(AM_CPPFLAGS) $(srcdir)/splinerefigure.c
 
 #--------------------------------------------------------------------------
 
 EXTRA_DIST = fontimage.pe fontlint.pe sfddiff.pe libstamp.pre	\
-	exelibstamp.pre fontimage.1 fontlint.1 sfddiff.1
+	exelibstamp.pre fontimage.1 fontlint.1 sfddiff.1			\
+	MacFontForgeApp.zip darwinsetup.in macobjective.m 
 MOSTLYCLEANFILES = fontimage fontlint sfddiff libstamp.c	\
 	exelibstamp.c
+
+#--------------------------------------------------------------------------
+
+if MACINTOSH
+
+# FIXME: All of this needs testing on Mac OS X.
+
+# put the FontForge.app zipfile in the share directory
+pkgdata_DATA = MacFontForgeAppBuilt.zip
+
+install-exec-local: FontForge.app/Contents/Info.plist
+	$(SHELL) -x darwinsetup
+
+FontForge.app/Contents/Info.plist: $(srcdir)/MacFontForgeApp.zip $(srcdir)/stamp.c clean-darwin-stuff
+	$(UNZIP) $(srcdir)/MacFontForgeApp.zip
+	mkdir -p darwinsetup_tmpdir
+	cp FontForge.app/Contents/Info.plist darwinsetup_tmpdir
+	( VERSION=`$(GREP) FONTFORGE_VERSIONDATE_RAW ../inc/config.h | $(SED) 's/.*RAW //g'` ; $(SED) s/20080810/$$VERSION/ < darwinsetup_tmpdir/Info.plist > FontForge.app/Contents/Info.plist )
+
+BUILT_SOURCES = MacFontForgeAppBuilt.zip
+
+MacFontForgeAppBuilt.zip: FontForge.app/Contents/Info.plist
+	zip -r $(srcdir)/MacFontForgeAppBuilt.zip FontForge.app
+
+mostlyclean-local: clean-darwin-stuff
+
+clean-darwin-stuff:
+	@if test -d darwinsetup_tmpdir; then rm -r -f darwinsetup_tmpdir;	\
+		echo rm -r -f darwinsetup_tmpdir; else :; fi
+	@if test -d FontForge.app; then rm -r -f FontForge.app;	\
+		echo rm -r -f FontForge.app; else :; fi
+	@if test -d __MACOSX; then rm -r -f __MACOSX;	\
+		echo rm -r -f __MACOSX; else :; fi
+
+endif MACINTOSH
+
+#--------------------------------------------------------------------------
+
+-include $(top_srcdir)/git.mk

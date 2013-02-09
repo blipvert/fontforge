@@ -27,10 +27,7 @@
 #ifndef _BASICS_H
 #define _BASICS_H
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
-
+# include <config.h>		/* FF config file */
 #include <stdio.h>		/* for NULL */
 #ifdef HAVE_STDINT_H
 # include <stdint.h>
@@ -45,6 +42,7 @@
 
 #define forever for (;;)
 
+typedef int bool;
 typedef int32_t		int32;
 typedef uint32_t	uint32;
 typedef int16_t		int16;
@@ -55,11 +53,7 @@ typedef uint8_t		uint8;
 /* An integral type which can hold a pointer */
 typedef intptr_t	intpt;
 
-#ifdef UNICHAR_16
-typedef uint16 unichar_t;
-#else
 typedef uint32 unichar_t;
-#endif
 
 /* A macro to mark unused function parameters with. We often
  * have such parameters, because of extensive use of callbacks.
@@ -84,7 +78,19 @@ extern void gfree(void *);
 #define grealloc realloc
 #define gfree free
 #endif /* USE_OUR_MEMORY */
+extern void NoMoreMemMessage(void);
 
 extern void galloc_set_trap(void (*)(void));
+
+static inline int imin(int a, int b)
+{
+    return (a < b) ? a : b;
+}
+
+static inline int imax(int a, int b)
+{
+    return (a < b) ? b : a;
+}
+
 #endif
 

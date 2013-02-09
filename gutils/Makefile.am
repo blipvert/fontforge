@@ -1,56 +1,62 @@
+# Copyright (C) 2000-2012 by George Williams
+# Copyright (C) 2012 by Barry Schwartz
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# The name of the author may not be used to endorse or promote products
+# derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+# EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+# OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 lib_LTLIBRARIES = libgutils.la libgioftp.la
 
 #--------------------------------------------------------------------------
-
-GUTL_VERSION = 1
-GUTL_REVISION = 3
-GUTL_AGE = 0
 
 libgutils_la_SOURCES = divisors.c fsys.c gcol.c gimage.c				\
 	gimagereadbmp.c gimageread.c gimagereadgif.c gimagereadjpeg.c		\
 	gimagereadpng.c gimagereadras.c gimagereadrgb.c gimagereadtiff.c	\
 	gimagereadxbm.c gimagereadxpm.c gimagewritebmp.c					\
 	gimagewritegimage.c gimagewritejpeg.c gimagewritepng.c				\
-	gimagewritexbm.c gimagewritexpm.c gwwintl.c dynamic.c gio.c			\
-	giofile.c giohosts.c giomime.c giothread.c giotrans.c				\
-	gimagebmpP.h giofuncP.h gioP.h
+	gimagewritexbm.c gimagewritexpm.c gwwintl.c gio.c giofile.c			\
+	giohosts.c giomime.c giothread.c giotrans.c gimagebmpP.h			\
+	giofuncP.h gioP.h dlist.c
 
 libgutils_la_CPPFLAGS = "-I$(top_builddir)/inc" "-I$(top_srcdir)/inc"	\
 	$(MY_CFLAGS)
 
-libgutils_la_LIBADD =											\
-	$(top_builddir)/pluginloading/libfontforgepluginloading.la	\
-	$(top_builddir)/Unicode/libgunicode.la
+libgutils_la_LIBADD = $(top_builddir)/Unicode/libgunicode.la
 
-if PLUGGIFLIB
-libgutils_la_LIBADD += -dlopen $(top_builddir)/plugins/pluggiflib.la
-endif PLUGGIFLIB
-
-if PLUGLIBJPEG
-libgutils_la_LIBADD += -dlopen $(top_builddir)/plugins/pluglibjpeg.la
-endif PLUGLIBJPEG
-
-if PLUGLIBPNG
-libgutils_la_LIBADD += -dlopen $(top_builddir)/plugins/pluglibpng.la
-endif PLUGLIBPNG
-
-if PLUGLIBTIFF
-libgutils_la_LIBADD += -dlopen $(top_builddir)/plugins/pluglibtiff.la
-endif PLUGLIBTIFF
-
-libgutils_la_LDFLAGS = $(MY_CFLAGS) $(MY_LIBS) -version-info	\
-	"$(GUTL_VERSION):$(GUTL_REVISION):$(GUTL_AGE)"
+# Using -release instead of -version-info seems appropriate in the
+# absence of a well defined ABI.
+libgutils_la_LDFLAGS = $(MY_CFLAGS) $(MY_LIBS) -release $(VERSION)
 
 #--------------------------------------------------------------------------
-
-GFTP_VERSION = 1
-GFTP_REVISION = 0
-GFTP_AGE = 0
 
 libgioftp_la_SOURCES = gioftp.c gioftpP.h
 libgioftp_la_CPPFLAGS = "-I$(top_builddir)/inc" "-I$(top_srcdir)/inc"	\
 	$(MY_CFLAGS)
-libgioftp_la_LDFLAGS = $(MY_CFLAGS) $(MY_LIBS) -version-info	\
-	"$(GFTP_VERSION):$(GFTP_REVISION):$(GFTP_AGE)"
+
+# Using -release instead of -version-info seems appropriate in the
+# absence of a well defined ABI.
+libgioftp_la_LDFLAGS = $(MY_CFLAGS) $(MY_LIBS) -release $(VERSION)
 
 #--------------------------------------------------------------------------
+
+-include $(top_srcdir)/git.mk

@@ -32,6 +32,7 @@
 #include <gkeysym.h>
 #include <utype.h>
 #include <gresource.h>
+#include "hotkeys.h"
 
 static GBox menubar_box = GBOX_EMPTY; /* Don't initialize here */
 static GBox menu_box = GBOX_EMPTY; /* Don't initialize here */
@@ -115,7 +116,7 @@ static void GMenuInit() {
     memset(&rq,0,sizeof(rq));
     GDrawDecomposeFont(_ggadget_default_font,&rq);
     rq.weight = 400;
-    menu_font = menubar_font = GDrawInstanciateFont(screen_display,&rq);
+    menu_font = menubar_font = GDrawInstanciateFont(NULL,&rq);
     _GGadgetCopyDefaultBox(&menubar_box);
     _GGadgetCopyDefaultBox(&menu_box);
     menubar_box.border_shape = menu_box.border_shape = bs_rect;
@@ -224,16 +225,106 @@ return;
     }
 
     if ( shortcut>=0xff00 && GDrawKeysyms[shortcut-0xff00] ) {
-	cu_strcpy(buffer,GDrawKeysyms[shortcut-0xff00]);
-	utf82u_strcpy(pt,dgettext(GMenuGetShortcutDomain(),buffer));
+    	cu_strcpy(buffer,GDrawKeysyms[shortcut-0xff00]);
+    	utf82u_strcpy(pt,dgettext(GMenuGetShortcutDomain(),buffer));
     } else {
-	*pt++ = islower(shortcut)?toupper(shortcut):shortcut;
-	*pt = '\0';
+    	*pt++ = islower(shortcut)?toupper(shortcut):shortcut;
+    	*pt = '\0';
     }
 }
 
+
 static void shorttext(GMenuItem *gi,unichar_t *buf) {
     _shorttext(gi->shortcut,gi->short_mask,buf);
+}
+
+static int GMenuGetMenuPathRecurse( GMenuItem** stack,
+				    GMenuItem *basemi,
+				    GMenuItem *targetmi ) {
+    GMenuItem *mi = basemi;
+    int i;
+    for ( i=0; mi[i].ti.text!=NULL || mi[i].ti.image!=NULL || mi[i].ti.line; ++i ) {
+	if ( mi[i].sub ) {
+//	    printf("GMenuGetMenuPathRecurse() going down on %s\n", u_to_c(mi[i].ti.text));
+	    stack[0] = &mi[i];
+	    int rc = GMenuGetMenuPathRecurse( &stack[1], mi[i].sub, targetmi );
+	    if( rc == 1 )
+		return rc;
+	    stack[0] = 0;
+	}
+	if( mi[i].ti.text ) {
+//	    printf("GMenuGetMenuPathRecurse() inspecting %s %p %p\n", u_to_c(mi[i].ti.text),mi[i],targetmi);
+	    GMenuItem* cur = &mi[i];
+	    if( cur == targetmi ) {
+		stack[0] = cur;
+		return 1;
+	    }
+	}
+    }
+    return 0;
+}
+
+/**
+ * Get a string describing the path from basemi to the targetmi.
+ * For example, if the basemi is the first mi in the whole menu structure
+ * and targetmi is to the edit / select all menu item then the return
+ * value is:
+ * edit.select all
+ *
+ * If you can't get to targetmi from basemi then return 0.
+ * If something doesn't make sense then return 0.
+ *
+ * Do not free the return value, it is a pointer into a buffer owned
+ * by this function.
+ */
+static char* GMenuGetMenuPath( GMenuItem *basemi, GMenuItem *targetmi ) {
+    GMenuItem* stack[1024];
+    bzero(stack,sizeof(stack));
+    if( !targetmi->ti.text )
+	return 0;
+    
+    /* printf("GMenuGetMenuPath() base   %s\n", u_to_c(basemi->ti.text)); */
+    /* printf("GMenuGetMenuPath() target %s\n", u_to_c(targetmi->ti.text)); */
+
+    /* { */
+    /* 	int i=0; */
+    /* 	GMenuItem *mi = basemi; */
+    /* 	for ( i=0; mi[i].ti.text!=NULL || mi[i].ti.image!=NULL || mi[i].ti.line; ++i ) { */
+    /* 	    if( mi[i].ti.text ) { */
+    /* 		printf("GMenuGetMenuPath() xbase   %s\n", u_to_c(mi[i].ti.text)); */
+    /* 	    } */
+    /* 	} */
+    /* } */
+//    printf("GMenuGetMenuPath() starting...\n");
+    
+    GMenuItem *mi = basemi;
+    int i;
+    for ( i=0; mi[i].ti.text!=NULL || mi[i].ti.image!=NULL || mi[i].ti.line; ++i ) {
+	if( mi[i].ti.text ) {
+	    bzero(stack,sizeof(stack));
+//	    printf("GMenuGetMenuPath() xbase   %s\n", u_to_c(mi[i].ti.text));
+	    int rc = GMenuGetMenuPathRecurse( stack, &mi[i], targetmi );
+//	    printf("GMenuGetMenuPath() rc   %d\n",  rc);
+	    if( stack[0] != 0 ) {
+//		printf("GMenuGetMenuPath() have stack[0]...\n");
+		break;
+	    }
+	}
+    }
+    if( stack[0] == 0 ) {
+	return 0;
+    }
+    
+    static char buffer[PATH_MAX];
+    buffer[0] = '\0';
+    for( i=0; stack[i]; i++ ) {
+	if( i )
+	    strcat(buffer,".");
+	if( stack[i]->ti.text )
+	    cu_strcat(buffer,stack[i]->ti.text);
+//	printf("i %d  mi %s\n", i, u_to_c(stack[i]->ti.text));
+    }
+    return buffer;
 }
 
 static int GMenuDrawMacIcons(struct gmenu *m, Color fg, int ybase, int x, int mask ) {
@@ -396,6 +487,17 @@ static void GMenuDrawDownArrow(struct gmenu *m, int ybase) {
     GDrawDrawLine(m->w,p[2].x-pt,p[2].y,p[0].x,p[0].y+pt,m->box->border_darkest);
 }
 
+/**
+ * Return the menu bar at the top of this menu list
+ * */
+static GMenuBar * getTopLevelMenubar( struct gmenu *m ) {
+    while( m->parent ) {
+	m = m->parent;
+    }
+    return m->menubar;
+}
+
+
 static int GMenuDrawMenuLine(struct gmenu *m, GMenuItem *mi, int y,GWindow pixmap) {
     unichar_t shortbuf[300];
     int as = GTextInfoGetAs(m->w,&mi->ti,m->font);
@@ -406,6 +508,10 @@ static int GMenuDrawMenuLine(struct gmenu *m, GMenuItem *mi, int y,GWindow pixma
     int r2l = false;
     int x;
 
+    /* printf("GMenuDrawMenuLine(top)\n"); */
+    /* if(mi->ti.text) */
+    /* 	printf("GMenuDrawMenuLine() mi:%s\n",u_to_c(mi->ti.text)); */
+	
     new.x = m->tickoff; new.width = m->rightedge-m->tickoff;
     new.y = y; new.height = GTextInfoGetHeight(pixmap,&mi->ti,m->font);
     GDrawPushClip(pixmap,&new,&old);
@@ -426,7 +532,6 @@ static int GMenuDrawMenuLine(struct gmenu *m, GMenuItem *mi, int y,GWindow pixma
     h = GTextInfoDraw(pixmap,x,y,&mi->ti,m->font,
 	    (mi->ti.disabled || m->disabled )?m->box->disabled_foreground:fg,
 	    m->box->active_border,new.y+new.height);
-
     if ( mi->ti.checkable ) {
 	if ( mi->ti.checked )
 	    GMenuDrawCheckMark(m,fg,ybase,r2l);
@@ -436,25 +541,62 @@ static int GMenuDrawMenuLine(struct gmenu *m, GMenuItem *mi, int y,GWindow pixma
 
     if ( mi->sub!=NULL )
 	GMenuDrawArrow(m,ybase,r2l);
-    else if ( mi->shortcut!=0 && (mi->short_mask&0xffe0)==0 && mac_menu_icons ) {
+    else
+    {
 	_shorttext(mi->shortcut,0,shortbuf);
-	width = GDrawGetBiTextWidth(pixmap,shortbuf,-1,-1,NULL) + GMenuMacIconsWidth(m,mi->short_mask);
-	if ( r2l ) {
-	    int x = GDrawDrawBiText(pixmap,m->bp,ybase,shortbuf,-1,NULL,fg);
-	    GMenuDrawMacIcons(m,fg,ybase, x, mi->short_mask);
-	} else {
-	    int x = GMenuDrawMacIcons(m,fg,ybase,m->rightedge-width, mi->short_mask);
-	    GDrawDrawBiText(pixmap,x,ybase,shortbuf,-1,NULL,fg);
-	}
-    } else if ( mi->shortcut!=0 ) {
-	shorttext(mi,shortbuf);
+	uint16 short_mask = mi->short_mask;
 
-	width = GDrawGetBiTextWidth(pixmap,shortbuf,-1,-1,NULL);
+	/* printf("m->menubar: %p\n", m->menubar ); */
+	/* printf("m->parent: %p\n", m->parent ); */
+	/* printf("m->toplevel: %p\n", getTopLevelMenubar(m)); */
+
+	/**
+	 * Grab the hotkey if there is one. First we work out the
+	 * menubar for this menu item, and then get the path from the
+	 * menubar to the menuitem and pass that to the hotkey system
+	 * to get the hotkey if there is one for that menu item.
+	 */
+	GMenuBar* toplevel = getTopLevelMenubar(m);
+	if( toplevel )
+	{
+	    short_mask = 0;
+	    uc_strcpy(shortbuf,"");
+	    /* printf("m->menubar->mi: %p\n", toplevel->mi ); */
+	    /* printf("m->menubar->window: %p\n", toplevel->g.base ); */
+	    Hotkey* hk = hotkeyFindByMenuPath( toplevel->g.base,
+					       GMenuGetMenuPath( toplevel->mi, mi ));
+//	    printf("hk: %p\n", hk );
+	    if(hk)
+	    {
+		short_mask = hk->state;
+		char* keydesc = hk->text;
+		if( mac_menu_icons )
+		{
+		    keydesc = hotkeyTextWithoutModifiers( keydesc );
+		}
+		uc_strcpy( shortbuf, keydesc );
+	    }
+	}
+	
+	width = GDrawGetTextWidth(pixmap,shortbuf,-1);
+	if( mac_menu_icons )
+	    width += GMenuMacIconsWidth( m, short_mask );
+	
 	if ( r2l )
-	    GDrawDrawBiText(pixmap,m->bp,ybase,shortbuf,-1,NULL,fg);
+	{
+	    int x = GDrawDrawText(pixmap,m->bp,ybase,shortbuf,-1,fg);
+	    if( mac_menu_icons )
+		GMenuDrawMacIcons(m,fg,ybase, x, short_mask);
+	}
 	else
-	    GDrawDrawBiText(pixmap,m->rightedge-width,ybase,shortbuf,-1,NULL,fg);
+	{
+	    int x = m->rightedge-width;
+	    if( mac_menu_icons )
+		x = GMenuDrawMacIcons(m,fg,ybase,m->rightedge-width, short_mask);
+	    GDrawDrawText(pixmap,x,ybase,shortbuf,-1,fg);
+	}
     }
+    
     GDrawPopClip(pixmap,&old);
 return( y + h );
 }
@@ -957,6 +1099,97 @@ return( keysym );
 }
 #endif
 
+/**
+ * return true if the prefix matches the first segment of the given action.
+ * For example,
+ * return will be 0 when action = foo.bar.baz prefix = bar
+ * return will be 0 when action = foo.bar.baz prefix = fooo
+ * return will be 1 when action = foo.bar.baz prefix = foo
+ * return will be 1 when action = baz prefix = baz
+ */
+static int HKActionMatchesFirstPartOf( char* action, char* prefix ) {
+    char* pt = strchr(action,'.');
+    if( !pt )
+	return( 0==strcmp(action,prefix) );
+    
+    int l = pt - action;
+    if( strlen(prefix) < l )
+	return 0;
+    int rc = strncmp( action, prefix, l );
+    return rc == 0;
+}
+
+static char* HKActionPointerPastLeftmostKey( char* action ) {
+    char* pt = strchr(action,'.');
+    if( !pt )
+	return 0;
+    return pt + 1;
+}
+
+
+static GMenuItem *GMenuSearchActionRecursive( GWindow gw,
+					      GMenuItem *mi,
+					      char* action,
+					      GEvent *event,
+					      int call_moveto) {
+    
+    printf("GMenuSearchAction() action:%s\n", action );
+    int i;
+    for ( i=0; mi[i].ti.text!=NULL || mi[i].ti.image!=NULL || mi[i].ti.line; ++i ) {
+	if ( call_moveto && mi[i].moveto != NULL)
+	    (mi[i].moveto)(gw,&(mi[i]),event);
+
+	if ( mi[i].sub ) {
+	    if( HKActionMatchesFirstPartOf( action, u_to_c(mi[i].ti.text) )) {
+		char* subaction = HKActionPointerPastLeftmostKey(action);
+		printf("GMenuSearchAction() action:%s decending menu:%s\n", action, u_to_c(mi[i].ti.text) );
+		GMenuItem *ret = GMenuSearchActionRecursive(gw,mi[i].sub,subaction,event,call_moveto);
+		if ( ret!=NULL )
+		    return( ret );
+	    }
+	} else {
+	    printf("line:%d 1byte:%d in_resource:%d \n",
+		   mi[i].ti.line,
+		   mi[i].ti.text_is_1byte,
+		   mi[i].ti.text_in_resource );
+	    
+	    
+	    if( !mi[i].ti.text ) {
+		printf("no text...\n");
+	    } else {
+		printf("GMenuSearchAction() action:%s testing menu:%s\n", action, u_to_c(mi[i].ti.text) );
+		if( HKActionMatchesFirstPartOf( action, u_to_c(mi[i].ti.text) )) {
+		    printf("GMenuSearchAction() matching final menu part! action:%s\n", action );
+		    return &mi[i];
+		}
+	    }
+	}
+	
+    }
+return( NULL );
+}
+static GMenuItem *GMenuSearchAction( GWindow gw,
+				     GMenuItem *mi,
+				     char* action,
+				     GEvent *event,
+				     int call_moveto) {
+    char* windowType = GDrawGetWindowTypeName( gw );
+    if( !windowType )
+	return 0;
+    printf("GMenuSearchAction() windowtype:%s\n", windowType );
+    int actionlen = strlen(action);
+    int prefixlen = strlen(windowType) + 1 + strlen("Menu.");
+    if( actionlen < prefixlen ) {
+	return 0;
+    }
+    action += prefixlen;
+    GMenuItem * ret = GMenuSearchActionRecursive( gw, mi, action,
+						  event, call_moveto );
+    return ret;
+}
+
+
+
 static GMenuItem *GMenuSearchShortcut(GWindow gw, GMenuItem *mi, GEvent *event,
 	int call_moveto) {
     int i;
@@ -1225,8 +1458,12 @@ static int gmenu_scroll(GGadget *g, GEvent *event) {
 return( true );
 }
 
-static GMenu *_GMenu_Create(GWindow owner,GMenuItem *mi, GPoint *where,
-	int awidth, int aheight, GFont *font, int disable) {
+static GMenu *_GMenu_Create( GMenuBar* toplevel,
+			     GWindow owner,
+			     GMenuItem *mi,
+			     GPoint *where,
+			     int awidth, int aheight,
+			     GFont *font, int disable) {
     GMenu *m = gcalloc(1,sizeof(GMenu));
     GRect pos;
     GDisplay *disp = GDrawGetDisplayOfWindow(owner);
@@ -1266,16 +1503,43 @@ static GMenu *_GMenu_Create(GWindow owner,GMenuItem *mi, GPoint *where,
     GDrawSetFont(m->w,m->font);
     m->hasticks = false; width = 0; keywidth = 0;
     for ( i=0; mi[i].ti.text!=NULL || mi[i].ti.image!=NULL || mi[i].ti.line; ++i ) {
-	if ( mi[i].ti.checkable ) m->hasticks = true;
+	if ( mi[i].ti.checkable )
+	    m->hasticks = true;
 	temp = GTextInfoGetWidth(m->w,&mi[i].ti,m->font);
-	if ( temp>width ) width = temp;
-	if ( mi[i].shortcut!=0 && (mi[i].short_mask&0xffe0)==0 && mac_menu_icons ) {
-	    _shorttext(mi[i].shortcut,0,buffer);
-	    temp = GDrawGetBiTextWidth(m->w,buffer,-1,-1,NULL) + GMenuMacIconsWidth(m,mi[i].short_mask);
-	} else {
-	    shorttext(&mi[i],buffer);
-	    temp = GDrawGetBiTextWidth(m->w,buffer,-1,-1,NULL);
+	if ( temp>width ) 
+	    width = temp;
+
+	uc_strcpy(buffer,"");
+	uint16 short_mask = 0;
+	/**
+	 * Grab the hotkey if there is one. First we work out the
+	 * menubar for this menu item, and then get the path from the
+	 * menubar to the menuitem and pass that to the hotkey system
+	 * to get the hotkey if there is one for that menu item.
+	 *
+	 * If we have a hotkey then set the width to the text porition
+	 * first and then add the modifier icons if there are to be
+	 * any for the key combination.
+	 */
+	if( toplevel ) {
+	    Hotkey* hk = hotkeyFindByMenuPath( toplevel->g.base,
+					       GMenuGetMenuPath( toplevel->mi, &mi[i] ));
+	    if(hk) {
+		short_mask = hk->state;
+		char* keydesc = hk->text;
+		if( mac_menu_icons )
+		{
+		    keydesc = hotkeyTextWithoutModifiers( keydesc );
+		}
+		uc_strcpy( buffer, keydesc );
+	    }
+	    
+	    temp = GDrawGetTextWidth(m->w,buffer,-1);
+	    if( short_mask && mac_menu_icons ) {
+		temp += GMenuMacIconsWidth( m, short_mask );
+	    }
 	}
+	
 	if ( temp>keywidth ) keywidth=temp;
 	if ( mi[i].sub!=NULL && 3*m->as>keywidth )
 	    keywidth = 3*m->as;
@@ -1365,7 +1629,7 @@ static GMenu *GMenuCreateSubMenu(GMenu *parent,GMenuItem *mi,int disable) {
     p.x = parent->width;
     p.y = (parent->line_with_mouse-parent->offtop)*parent->fh + parent->bp;
     GDrawTranslateCoordinates(parent->w,GDrawGetRoot(GDrawGetDisplayOfWindow(parent->w)),&p);
-    m = _GMenu_Create(parent->owner,mi,&p,-parent->width,parent->fh,
+    m = _GMenu_Create(getTopLevelMenubar(parent),parent->owner,mi,&p,-parent->width,parent->fh,
 	    parent->font, disable);
     m->parent = parent;
     m->pressed = parent->pressed;
@@ -1380,7 +1644,7 @@ static GMenu *GMenuCreatePulldownMenu(GMenuBar *mb,GMenuItem *mi,int disabled) {
 	    GBoxDrawnWidth(mb->g.base,&menu_box );
     p.y = mb->g.r.y + mb->g.r.height;
     GDrawTranslateCoordinates(mb->g.base,GDrawGetRoot(GDrawGetDisplayOfWindow(mb->g.base)),&p);
-    m = _GMenu_Create(mb->g.base,mi,&p,
+    m = _GMenu_Create(mb,mb->g.base,mi,&p,
 	    mb->xs[mb->entry_with_mouse+1]-mb->xs[mb->entry_with_mouse],
 	    -mb->g.r.height,mb->font, disabled);
     m->menubar = mb;
@@ -1401,7 +1665,7 @@ GWindow _GMenuCreatePopupMenu(GWindow owner,GEvent *event, GMenuItem *mi,
     p.x = event->u.mouse.x;
     p.y = event->u.mouse.y;
     GDrawTranslateCoordinates(owner,GDrawGetRoot(GDrawGetDisplayOfWindow(owner)),&p);
-    m = _GMenu_Create(owner,GMenuItemArrayCopy(mi,NULL),&p,0,0,menu_font,false);
+    m = _GMenu_Create(0,owner,GMenuItemArrayCopy(mi,NULL),&p,0,0,menu_font,false);
     m->any_unmasked_shortcuts = GMenuItemArrayAnyUnmasked(m->mi);
     GDrawPointerUngrab(GDrawGetDisplayOfWindow(owner));
     GDrawPointerGrab(m->w);
@@ -1420,10 +1684,9 @@ return( _GMenuCreatePopupMenu(owner,event,mi,NULL));
 
 int GMenuPopupCheckKey(GEvent *event) {
 
-    if ( most_recent_popup_menu==NULL )
-return( false );
+    if ( most_recent_popup_menu==NULL ) return( false );
 
-return( gmenu_key(most_recent_popup_menu,event));
+    return( gmenu_key(most_recent_popup_menu,event) );
 }
 
 /* ************************************************************************** */
@@ -1432,120 +1695,90 @@ int GGadgetUndoMacEnglishOptionCombinations(GEvent *event) {
     int keysym = event->u.chr.keysym;
 
     switch ( keysym ) {
+    /* translate special mac keys to ordinary keys */
       case 0xba:
-	keysym = '0';
-      break;
+	keysym = '0'; break;
       case 0xa1:
-	keysym = '1';
-      break;
+	keysym = '1'; break;
       case 0x2122:
-	keysym = '2';
-      break;
+	keysym = '2'; break;
       case 0xa3:
-	keysym = '3';
-      break;
+	keysym = '3'; break;
       case 0xa2:
-	keysym = '4';
-      break;
+	keysym = '4'; break;
       case 0x221e:
-	keysym = '5';
-      break;
+	keysym = '5'; break;
       case 0xa7:
-	keysym = '6';
-      break;
+	keysym = '6'; break;
       case 0xb6:
-	keysym = '7';
-      break;
+	keysym = '7'; break;
       case 0x2022:
-	keysym = '8';
-      break;
+	keysym = '8'; break;
       case 0xaa:
-	keysym = '9';
-      break;
+	keysym = '9'; break;
       case 0xe5:
-	keysym = 'a';
-      break;
+	keysym = 'a'; break;
       case 0x222b:
-	keysym = 'b';
-      break;
+	keysym = 'b'; break;
       case 0xe7:
-	keysym = 'c';
-      break;
+	keysym = 'c'; break;
       case 0x2202:
-	keysym = 'd';
-      break;
+	keysym = 'd'; break;
       /* e is a modifier */
       case 0x192:
-	keysym = 'f';
-      break;
+	keysym = 'f'; break;
       case 0xa9:
-	keysym = 'g';
-      break;
+	keysym = 'g'; break;
       case 0x2d9:
-	keysym = 'h';
-      break;
+	keysym = 'h'; break;
       /* i is a modifier */
       case 0x2206:
-	keysym = 'j';
-      break;
+	keysym = 'j'; break;
       case 0x2da:
-	keysym = 'k';
-      break;
+	keysym = 'k'; break;
       case 0xac:
-	keysym = 'l';
-      break;
+	keysym = 'l'; break;
       case 0xb5:
-	keysym = 'm';
-      break;
+	keysym = 'm'; break;
       /* n is a modifier */
       case 0xf8:
-	keysym = 'o';
-      break;
+	keysym = 'o'; break;
       case 0x3c0:
-	keysym = 'p';
-      break;
+	keysym = 'p'; break;
       case 0x153:
-	keysym = 'q';
-      break;
+	keysym = 'q'; break;
       case 0xae:
-	keysym = 'r';
-      break;
+	keysym = 'r'; break;
       case 0x2020:
-	keysym = 's';
-      break;
+	keysym = 's'; break;
       case 0xee:
-	keysym = 't';
-      break;
+	keysym = 't'; break;
       /* u is a modifier */
       case 0x221a:
-	keysym = 'v';
-      break;
+	keysym = 'v'; break;
       case 0x2211:
-	keysym = 'w';
-      break;
+	keysym = 'w'; break;
       case 0x2248:
-	keysym = 'x';
-      break;
+	keysym = 'x'; break;
       case 0xa5:
-	keysym = 'y';
-      break;
+	keysym = 'y'; break;
       case 0x3a9:
-	keysym = 'z';
-      break;
+	keysym = 'z'; break;
     }
-return( keysym );
+    return( keysym );
 }
 
-int GMenuBarCheckKey(GGadget *g, GEvent *event) {
+
+
+int GMenuBarCheckKey(GWindow top, GGadget *g, GEvent *event) {
     int i;
     GMenuBar *mb = (GMenuBar *) g;
     GMenuItem *mi;
     unichar_t keysym = event->u.chr.keysym;
 
-    if ( g==NULL )
-return( false );
-    if ( keysym==0 )
-return( false );
+//    printf("GMenuBarCheckKey() keysym:%d upper:%d lower:%d\n",keysym,toupper(keysym),tolower(keysym));
+
+    if ( g==NULL || keysym==0 ) return( false ); /* exit if no gadget or key */
 
     if ( (menumask&ksm_cmdmacosx) && keysym>0x7f &&
 	    (event->u.chr.state&ksm_meta) &&
@@ -1557,42 +1790,66 @@ return( false );
     if ( event->u.chr.state&ksm_meta && !(event->u.chr.state&(menumask&~(ksm_meta|ksm_shift)))) {
 	/* Only look for mneumonics in the leaf of the displayed menu structure */
 	if ( mb->child!=NULL )
-return( gmenu_key(mb->child,event));	/* this routine will do shortcuts too */
+	    return( gmenu_key(mb->child,event)); /* this routine will do shortcuts too */
 
 	for ( i=0; i<mb->mtot; ++i ) {
-	    if ( mb->mi[i].ti.mnemonic == keysym &&
-			!mb->mi[i].ti.disabled ) {
+	    if ( mb->mi[i].ti.mnemonic == keysym && !mb->mi[i].ti.disabled ) {
 		GMenuBarKeyInvoke(mb,i);
-return( true );
+		return( true );
 	    }
 	}
     }
 
-    /* then look for shortcuts everywhere */
-    if ( event->u.chr.state&(menumask&~ksm_shift) ||
-	    event->u.chr.keysym>=GK_Special ||
-	    mb->any_unmasked_shortcuts ) {
-	mi = GMenuSearchShortcut(mb->g.base,mb->mi,event,mb->child==NULL);
-	if ( mi!=NULL ) {
-	    if ( mi->ti.checkable && !mi->ti.disabled )
-		mi->ti.checked = !mi->ti.checked;
-	    if ( mi->invoke!=NULL && !mi->ti.disabled )
-		(mi->invoke)(mb->g.base,mi,NULL);
-	    if ( mb->child != NULL )
-		GMenuDestroy(mb->child);
-return( true );
-	}
+    /* First check for an open menu underscore key being pressed */
+    mi = GMenuSearchShortcut(mb->g.base,mb->mi,event,mb->child==NULL);
+    if ( mi ) {
+	if ( mi->ti.checkable && !mi->ti.disabled )
+	    mi->ti.checked = !mi->ti.checked;
+	if ( mi->invoke!=NULL && !mi->ti.disabled )
+	    (mi->invoke)(mb->g.base,mi,NULL);
+	if ( mb->child != NULL )
+	    GMenuDestroy(mb->child);
+	return( true );
     }
+
+    /* then look for hotkeys everywhere */
+	
+//    printf("looking for hotkey in new system...state:%d keysym:%d\n", event->u.chr.state, event->u.chr.keysym );
+	struct dlistnodeExternal* hklist = hotkeyFindAllByEvent( top, event );
+	struct dlistnodeExternal* node = hklist;
+	for( ; node; node=node->next ) {
+	    Hotkey* hk = (Hotkey*)node->ptr;
+//	    printf("hotkey found by event! hk:%p\n", hk );
+	    mi = GMenuSearchAction(mb->g.base,mb->mi,hk->action,event,mb->child==NULL);
+	    if ( mi ) {
+		if ( mi->ti.checkable && !mi->ti.disabled )
+		    mi->ti.checked = !mi->ti.checked;
+		if ( mi->invoke!=NULL && !mi->ti.disabled )
+		    (mi->invoke)(mb->g.base,mi,NULL);
+		if ( mb->child != NULL )
+		    GMenuDestroy(mb->child);
+		return( true );
+	    } else {
+		printf("hotkey found for event must be a non menu action... action:%s\n", hk->action );
+		
+	    }
+
+//	    printf("END hotkey found by event! hk:%p\n", hk );
+	}
+	dlist_free_external(hklist);
+	
     if ( mb->child!=NULL ) {
 	GMenu *m;
-	for ( m=mb->child; m->child!=NULL; m = m->child );
-return( GMenuSpecialKeys(m,event->u.chr.keysym,event));
+	// m = last(mb->child);
+	for ( m=mb->child; m->child!=NULL; m = m->child ) {
+	}
+	return( GMenuSpecialKeys(m,event->u.chr.keysym,event));
     }
 
     if ( event->u.chr.keysym==GK_Menu )
 	GMenuCreatePopupMenu(event->w,event, mb->mi);
 
-return( false );
+    return( false );
 }
 
 static void GMenuBarDrawDownArrow(GWindow pixmap, GMenuBar *mb, int x) {
@@ -1836,7 +2093,7 @@ static void GMenuBarFindXs(GMenuBar *mb) {
 	mb->xs[i+1] = mb->xs[i]+wid+GTextInfoGetWidth(mb->g.base,&mb->mi[i].ti,NULL);
 #else
     for ( i=wid=0; i<mb->mtot; ++i ) {
-	temp = GDrawGetBiTextWidth(mb->g.base,mb->mi[i].ti.text,-1,-1,NULL);
+	temp = GDrawGetTextWidth(mb->g.base,mb->mi[i].ti.text,-1);
 	if ( temp>wid ) wid = temp;
     }
     wid += GDrawPointsToPixels(mb->g.base,5);

@@ -1,1 +1,68 @@
 George Williams
+10 years and approximately 600,000 lines of code.
+
+Aktado <aktado@users.sourceforge.jp>
+Arthaey Angosii
+Alexey Kryukov - nowakowskittfinstr.c
+Alexandre Prokoudine
+Barry Schwartz
+Baruch Even
+Ben Martin - hotkeys.c, hotkeys.h
+Craig Lennox
+Deron Meranda
+Dave Levine
+Dong Yang
+Georg Duffner
+J. Jansen - gv - ANALYZE_MAP.COM
+Jason Pagura
+Johannes Plass - gv = ANALYZE_MAP.COM
+Jonathan Hanna
+Jonathan Hue
+Joshua Richardson
+KANOU
+Kemie Guaida - Tango PixMaps
+Khaled Hosny
+Lu Wang
+Matthew Petroff
+Matthew Skala
+Max Rabkin - excepthook.py
+Michal Mazurek
+Michal Nowakowski - nowakowskittfinstr.c
+Qmpel
+R.L. Horn
+Scott Pakin - Packaging
+serval2412
+Steve White - ASMO 708 codepage, & more
+Timothy O. Theisen - gv = ANALYZE_MAP.COM
+Tom Harvey - fontforge.1
+Ville Skytta
+Werner Lemberg
+yannis
+
+...more coders to add here later since this is a long list!
+...however, got a small start with Translators....2012sep27
+
+Language Translations provided by:
+Rafael Ferran i Peralta - ca - Catalan
+Philipp Poll - de - Deutsch
+Apostolos Syropoulos - el - Greek
+George Williams - en_GB
+Walter Echarri, es - Spanish
+Pierre HANSER, fr - French
+Yannis Haralambous - French
+Claudio Beccari, it - Italian
+KANOU Hiroki, ja - Japanese
+TANIGAWA Takashi, ja - Japanese
+OKANO Takayoshi, ja - Japanese
+Hiran - ml - Malayalam
+Michal Nowakowski - po - Polish
+Alexandre Prokoudine - ru - Russian
+Yuri Chornoivan - uk - Ukrainian
+Clytie Siddall - vi - Vietnamese
+Lee Chenhwa - zh_CN - Chinese
+Wei-Lun Chao - zh_TW - Traditional Chinese
+
+Effort was made to make this list, however it is likely
+contributors will have been missed. If you helped build
+FontForge, please indicate what and when to the mailing
+list at <fontforge-devel@lists.sourceforge.net>

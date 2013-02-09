@@ -33,6 +33,7 @@
 #include <sys/stat.h>		/* for mkdir */
 #include <unistd.h>
 
+
 #ifdef _WIN32
 #define MKDIR(A,B) mkdir(A)
 #else
@@ -243,7 +244,7 @@ return( (char *)oldname );
 char *GFileAppendFile(char *dir,char *name,int isdir) {
     char *ret, *pt;
 
-    ret = galloc((strlen(dir)+strlen(name)+3));
+    ret = (char *) galloc((strlen(dir)+strlen(name)+3));
     strcpy(ret,dir);
     pt = ret+strlen(ret);
     if ( pt>ret && pt[-1]!='/' )
@@ -515,7 +516,7 @@ return( name );
 unichar_t *u_GFileAppendFile(unichar_t *dir,unichar_t *name,int isdir) {
     unichar_t *ret, *pt;
 
-    ret = galloc((u_strlen(dir)+u_strlen(name)+3)*sizeof(unichar_t));
+    ret = (unichar_t *) galloc((u_strlen(dir)+u_strlen(name)+3)*sizeof(unichar_t));
     u_strcpy(ret,dir);
     pt = ret+u_strlen(ret);
     if ( pt>ret && pt[-1]!='/' )
@@ -598,4 +599,131 @@ int u_GFileUnlink(unichar_t *name) {
     char buffer[1024];
     u2def_strncpy(buffer,name,sizeof(buffer));
 return(unlink(buffer));
+}
+
+static char *GResourceProgramDir = 0;
+
+char* getGResourceProgramDir() {
+    return GResourceProgramDir;
+}
+
+
+void FindProgDir(char *prog) {
+#if defined(__MINGW32__)
+    char  path[MAX_PATH+4];
+    char* c = path;
+    char* tail = 0;
+    unsigned int  len = GetModuleFileNameA(NULL, path, MAX_PATH);
+    path[len] = '\0';
+    for(; *c; *c++){
+    	if(*c == '\\'){
+    	    tail=c;
+    	    *c = '/';
+    	}
+    }
+    if(tail) *tail='\0';
+    GResourceProgramDir = copy(path);
+#else
+    GResourceProgramDir = _GFile_find_program_dir(prog);
+    if ( GResourceProgramDir==NULL ) {
+	char filename[1025];
+	GFileGetAbsoluteName(".",filename,sizeof(filename));
+	GResourceProgramDir = copy(filename);
+    }
+#endif
+}
+
+char *getShareDir(void) {
+    static char *sharedir=NULL;
+    static int set=false;
+    char *pt;
+    int len;
+
+    if ( set )
+	return( sharedir );
+
+    set = true;
+
+#if defined(__MINGW32__)
+
+    len = strlen(GResourceProgramDir) + strlen("/share/fontforge") +2;
+    sharedir = galloc(len);
+    strcpy(sharedir, GResourceProgramDir);
+    strcat(sharedir, "/share/fontforge");
+    return sharedir;
+
+#else
+
+    pt = strstr(GResourceProgramDir,"/bin");
+    if ( pt==NULL ) {
+#ifdef SHAREDIR
+	return( sharedir = SHAREDIR );
+#elif defined( PREFIX )
+	return( sharedir = PREFIX "/share" );
+#else
+	pt = GResourceProgramDir + strlen(GResourceProgramDir);
+#endif
+    }
+    len = (pt-GResourceProgramDir)+strlen("/share/fontforge")+1;
+    sharedir = galloc(len);
+    strncpy(sharedir,GResourceProgramDir,pt-GResourceProgramDir);
+    strcpy(sharedir+(pt-GResourceProgramDir),"/share/fontforge");
+    return( sharedir );
+#endif
+}
+
+
+char *getLocaleDir(void) {
+    static char *sharedir=NULL;
+    static int set=false;
+    char *pt;
+
+    if ( set )
+	return( sharedir );
+
+    char* prefix = getShareDir();
+    int len = strlen(prefix) + strlen("/../locale") + 2;
+    sharedir = galloc(len);
+    strcpy(sharedir,prefix);
+    strcat(sharedir,"/../locale");
+    set = true;
+    return sharedir;
+}
+
+char *getPixmapDir(void) {
+    static char *sharedir=NULL;
+    static int set=false;
+    char *pt;
+
+    if ( set )
+	return( sharedir );
+
+    char* prefix = getShareDir();
+    int len = strlen(prefix) + strlen("/pixmaps") + 2;
+    sharedir = galloc(len);
+    strcpy(sharedir,prefix);
+    strcat(sharedir,"/pixmaps");
+    set = true;
+    return sharedir;
+}
+
+char *getHelpDir(void) {
+    static char *sharedir=NULL;
+    static int set=false;
+    char *pt;
+
+    if ( set )
+	return( sharedir );
+
+    char* prefix = getShareDir();
+#if defined(DOCDIR)
+    prefix = DOCDIR;
+#endif    
+    char* postfix = "/../doc/fontforge/";
+    int len = strlen(prefix) + strlen(postfix) + 2;
+    sharedir = galloc(len);
+    strcpy(sharedir,prefix);
+    strcat(sharedir,postfix);
+    set = true;
+    return sharedir;
 }

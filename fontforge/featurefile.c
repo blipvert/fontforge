@@ -42,6 +42,8 @@
 #include <ustring.h>
 #include <locale.h>
 
+#include <glib.h>
+
 /* Adobe's opentype feature file */
 /* Which suffers incompatible changes according to Adobe's whim */
 /* Currently trying to support the version of december 2008, Version 1.8. */
@@ -645,7 +647,7 @@ static void dump_contextpstglyphs(FILE *out,SplineFont *sf,
 	fprintf( out, " by " );
 	for ( i=0; i<r->lookup_cnt; ++i ) {
 	    otl = r->lookups[i].lookup;
-	    for ( pt=r->u.glyph.names, j=0; ; ) {
+	    for ( pt=r->u.glyph.names, j=0; ; j++ ) {
 		while ( *pt==' ' ) ++pt;
 		if ( *pt=='\0' || j>=r->lookups[i].seq )
 	    break;
@@ -1724,6 +1726,68 @@ static void UniOut(FILE *out,char *name ) {
     }
 }
 
+static gboolean dump_header_languagesystem_hash_fe( gpointer key,
+						gpointer value,
+						gpointer user_data )
+{
+    FILE *out = (FILE*)user_data;
+    fprintf( out, "\nlanguagesystem %s;", (char*)key );
+    return 0;
+}
+
+static void donothing(gpointer data)
+{
+}
+
+
+static void dump_header_languagesystem(FILE *out, SplineFont *sf) {
+    int isgpos;
+    int i,l,s, subl;
+    OTLookup *otl;
+    FeatureScriptLangList *fl;
+    struct scriptlanglist *sl;
+    struct otffeatname *fn;
+    struct otfname *on;
+
+    GTree* ht = g_tree_new_full( (GCompareDataFunc)g_ascii_strcasecmp, 0, free, donothing );
+    
+    for ( isgpos=0; isgpos<2; ++isgpos ) {
+	uint32 *feats = SFFeaturesInScriptLang(sf,isgpos,0xffffffff,0xffffffff);
+	if ( feats[0]!=0 ) {
+	    uint32 *scripts = SFScriptsInLookups(sf,isgpos);
+	    note_nested_lookups_used_twice(isgpos ? sf->gpos_lookups : sf->gsub_lookups);
+	    for ( i=0; feats[i]!=0; ++i ) {
+
+		for ( s=0; scripts[s]!=0; ++s ) {
+		    uint32 *langs = SFLangsInScript(sf,isgpos,scripts[s]);
+		    int firsts = true;
+		    for ( l=0; langs[l]!=0; ++l ) {
+			int first = true;
+			for ( otl = isgpos ? sf->gpos_lookups : sf->gsub_lookups; otl!=NULL; otl=otl->next ) {
+			    for ( fl=otl->features; fl!=NULL; fl=fl->next ) if ( fl->featuretag==feats[i] ) {
+				    for ( sl=fl->scripts; sl!=NULL; sl=sl->next ) if ( sl->script==scripts[s] ) {
+					    for ( subl=0; subl<sl->lang_cnt; ++subl ) {
+						uint32 lang = subl<MAX_LANG ? sl->langs[subl] : sl->morelangs[subl-MAX_LANG];
+
+						char key[100];
+						snprintf(key,sizeof key,"%c%c%c%c %c%c%c%c",
+							 scripts[s]>>24, scripts[s]>>16, scripts[s]>>8, scripts[s],
+							 langs[l]>>24, langs[l]>>16, langs[l]>>8, langs[l] );
+						g_tree_insert( ht, copy(key), "" );
+					    }
+					}
+				}
+			}
+		    }
+		}
+	    }
+	}
+    }
+    
+    g_tree_foreach( ht, dump_header_languagesystem_hash_fe, out );
+    fprintf( out, "\n" );
+}
+
 static void dump_gsubgpos(FILE *out, SplineFont *sf) {
     int isgpos;
     int i,l,s, subl;
@@ -1795,7 +1859,7 @@ static void dump_gsubgpos(FILE *out, SplineFont *sf) {
 			    found:
 			    if ( fl!=NULL ) {
 				if ( firsts ) {
-				    fprintf( out, "\n  script %c%c%c%c;\n",
+				    fprintf( out, "\n script %c%c%c%c;\n",
 					    scripts[s]>>24, scripts[s]>>16, scripts[s]>>8, scripts[s] );
 				    firsts = false;
 				}
@@ -1918,6 +1982,7 @@ void FeatDumpFontLookups(FILE *out,SplineFont *sf) {
     untick_lookups(sf);
     preparenames(sf);
     gdef_markclasscheck(out,sf,NULL);
+    dump_header_languagesystem(out,sf);
     dump_gsubgpos(out,sf);
     dump_gdef(out,sf);
     dump_base(out,sf);
@@ -2132,28 +2197,59 @@ static char *fea_classesSplit(char *class1, char *class2) {
     return( intersection );
 }
 
+enum toktype { tk_name, tk_class, tk_int, tk_char, tk_cid, tk_eof,
+/* keywords */
+	       tk_firstkey,
+	       tk_anchor=tk_firstkey, tk_anonymous, tk_by, tk_caret, tk_cursive, tk_device,
+	       tk_enumerate, tk_excludeDFLT, tk_exclude_dflt, tk_feature, tk_from,
+	       tk_ignore, tk_ignoreDFLT, tk_ignoredflt, tk_IgnoreBaseGlyphs,
+	       tk_IgnoreLigatures, tk_IgnoreMarks, tk_include, tk_includeDFLT,
+	       tk_include_dflt, tk_language, tk_languagesystem, tk_lookup,
+	       tk_lookupflag, tk_mark, tk_nameid, tk_NULL, tk_parameters, tk_position,
+	       tk_required, tk_RightToLeft, tk_script, tk_substitute, tk_subtable,
+	       tk_table, tk_useExtension,
+/* Additional keywords in the 2008 draft */
+	       tk_anchorDef, tk_valueRecordDef, tk_contourpoint,
+	       tk_MarkAttachmentType, tk_UseMarkFilteringSet,
+	       tk_markClass, tk_reversesub, tk_base, tk_ligature, tk_ligComponent,
+	       tk_featureNames
+};
+
+struct glyphclasses {
+    char *classname, *glyphs;
+    struct glyphclasses *next;
+};
+
+struct namedanchor {
+    char *name;
+    AnchorPoint *ap;
+    struct namedanchor *next;
+};
+
+struct namedvalue {
+    char *name;
+    struct vr *vr;
+    struct namedvalue *next;
+};
+
+struct gdef_mark { char *name; int index; char *glyphs; };
+
+/* GPOS mark classes may have multiple definitions each added a glyph
+ * class and anchor, these are linked under "same" */
+struct gpos_mark {
+    char *name;
+    char *glyphs;
+    AnchorPoint *ap;
+    struct gpos_mark *same, *next;
+    int name_used;	/* Same "markClass" can be used in any mark type lookup, or indeed in multiple lookups of the same type */
+} *gpos_mark;
+
 #define MAXT	80
 #define MAXI	5
 struct parseState {
     char tokbuf[MAXT+1];
     long value;
-    enum toktype { tk_name, tk_class, tk_int, tk_char, tk_cid, tk_eof,
-/* keywords */
-	tk_firstkey,
-	tk_anchor=tk_firstkey, tk_anonymous, tk_by, tk_caret, tk_cursive, tk_device,
-	tk_enumerate, tk_excludeDFLT, tk_exclude_dflt, tk_feature, tk_from,
-	tk_ignore, tk_ignoreDFLT, tk_ignoredflt, tk_IgnoreBaseGlyphs,
-	tk_IgnoreLigatures, tk_IgnoreMarks, tk_include, tk_includeDFLT,
-	tk_include_dflt, tk_language, tk_languagesystem, tk_lookup,
-	tk_lookupflag, tk_mark, tk_nameid, tk_NULL, tk_parameters, tk_position,
-	tk_required, tk_RightToLeft, tk_script, tk_substitute, tk_subtable,
-	tk_table, tk_useExtension,
-/* Additional keywords in the 2008 draft */
-	tk_anchorDef, tk_valueRecordDef, tk_contourpoint,
-	tk_MarkAttachmentType, tk_UseMarkFilteringSet,
-	tk_markClass, tk_reversesub, tk_base, tk_ligature, tk_ligComponent,
-	tk_featureNames
-    } type;
+    enum toktype type;
     uint32 tag;
     int could_be_tag;
     FILE *inlist[MAXI];
@@ -2168,30 +2264,23 @@ struct parseState {
     unsigned int skipping: 1;
     SplineFont *sf;
     struct scriptlanglist *def_langsyses;
-    struct glyphclasses { char *classname, *glyphs; struct glyphclasses *next; } *classes;
-    struct namedanchor { char *name; AnchorPoint *ap; struct namedanchor *next; } *namedAnchors;
-    struct namedvalue { char *name; struct vr *vr; struct namedvalue *next; } *namedValueRs;
+    struct glyphclasses *classes;
+    struct namedanchor *namedAnchors;
+    struct namedvalue *namedValueRs;
     struct feat_item *sofar;
     int base;			/* normally numbers are base 10, but in the case of languages in stringids, they can be octal or hex */
     OTLookup *created, *last;	/* Ordered, but not sorted into GSUB, GPOS yet */
     AnchorClass *accreated;
     int gm_cnt[2], gm_max[2], gm_pos[2];
-    struct gdef_mark { char *name; int index; char *glyphs; } *gdef_mark[2];
-    /* GPOS mark classes may have multiple definitions each added a glyph class and anchor, these are linked under "same" */
-    struct gpos_mark {
-	char *name;
-	char *glyphs;
-	AnchorPoint *ap;
-	struct gpos_mark *same, *next;
-	int name_used;	/* Same "markClass" can be used in any mark type lookup, or indeed in multiple lookups of the same type */
-    } *gpos_mark;
+    struct gdef_mark *gdef_mark[2];
+    struct gpos_mark *gpos_mark;
 };
 
 static struct keywords {
     char *name;
     enum toktype tok;
 } fea_keywords[] = {
-/* list must be in toktype order */
+/* non-keyword tokens (must come first) */
     { "name", tk_name }, { "glyphclass", tk_class }, { "integer", tk_int },
     { "random character", tk_char}, { "cid", tk_cid }, { "EOF", tk_eof },
 /* keywords now */
@@ -3160,6 +3249,17 @@ return;
     }
 }
 
+struct apmark {
+    AnchorPoint *ap;
+    struct gpos_mark *mark_class;
+    uint16 mark_count;
+};
+
+struct ligcomponent {
+    int apm_cnt;
+    struct apmark *apmark;
+};
+
 struct markedglyphs {
     unsigned int has_marks: 1;		/* Are there any marked glyphs in the entire sequence? */
     unsigned int is_cursive: 1;		/* Only in a position sequence */
@@ -3176,9 +3276,9 @@ struct markedglyphs {
     int ap_cnt;				/* Number of anchor points */
     AnchorPoint **anchors;
     int apm_cnt;
-    struct apmark { AnchorPoint *ap; struct gpos_mark *mark_class; uint16 mark_count; } *apmark;
+    struct apmark *apmark;
     int lc_cnt;
-    struct ligcomponent { int apm_cnt; struct apmark *apmark; } *ligcomp;
+    struct ligcomponent *ligcomp;
     char *lookupname;
     struct markedglyphs *next;
 };
@@ -3900,7 +4000,7 @@ static struct feat_item *fea_AddAllLigPosibilities(struct parseState *tok,struct
     continue;
 	strcpy(next,temp->name);
 	after = next+strlen(next);
-	if ( glyphs->next!=NULL ) {
+	if ( glyphs->next!=NULL && glyphs->next->mark_count == glyphs->mark_count ) {
 	    *after++ = ' ';
 	    sofar = fea_AddAllLigPosibilities(tok,glyphs->next,sc,sequence_start,after,sofar);
 	} else {
@@ -4612,24 +4712,29 @@ static void fea_ParseSubstitute(struct parseState *tok) {
 		    r->u.rcoverage.replacements = copy(rpl->name_or_class );
 		}
 	    } else {
-		for ( i=0, rp=rpl; g!=NULL && rp!=NULL; ++i, rp=rp->next ) {
-		    if ( rp->lookupname!=NULL ) {
-			head = chunkalloc(sizeof(struct feat_item));
-			head->type = ft_lookup_ref;
-			head->u1.lookup_name = copy(rp->lookupname);
-		    } else if ( g->next==NULL || g->next->mark_count!=g->mark_count ) {
-			head = fea_process_sub_single(tok,g,rp,NULL);
-		    } else if ( g->next!=NULL && g->mark_count==g->next->mark_count ) {
-			head = fea_process_sub_ligature(tok,g,rpl,NULL);
-		    } else {
-			LogError(_("Unparseable contextual sequence on line %d of %s"), tok->line[tok->inc_depth], tok->filename[tok->inc_depth] );
-			++tok->err_count;
+		if ( rpl==NULL ) {
+		    LogError(_("No substitution specified on line %d of %s"), tok->line[tok->inc_depth], tok->filename[tok->inc_depth] );
+		    ++tok->err_count;
+		} else {
+		    for ( i=0, rp=rpl; g!=NULL && rp!=NULL; ++i, rp=rp->next ) {
+		        if ( rp->lookupname!=NULL ) {
+			    head = chunkalloc(sizeof(struct feat_item));
+			    head->type = ft_lookup_ref;
+			    head->u1.lookup_name = copy(rp->lookupname);
+		        } else if ( g->next==NULL || g->next->mark_count!=g->mark_count ) {
+			    head = fea_process_sub_single(tok,g,rp,NULL);
+		        } else if ( g->next!=NULL && g->mark_count==g->next->mark_count ) {
+			    head = fea_process_sub_ligature(tok,g,rpl,NULL);
+		        } else {
+			    LogError(_("Unparseable contextual sequence on line %d of %s"), tok->line[tok->inc_depth], tok->filename[tok->inc_depth] );
+			    ++tok->err_count;
+		        }
+		        r->lookups[i].lookup = (OTLookup *) head;
+		        cnt = g->mark_count;
+		        while ( g!=NULL && g->mark_count == cnt )	/* skip everything involved here */
+			    g=g->next;
+		        for ( ; g!=NULL && g->mark_count!=0; g=g->next ); /* skip any uninvolved glyphs */
 		    }
-		    r->lookups[i].lookup = (OTLookup *) head;
-		    cnt = g->mark_count;
-		    while ( g!=NULL && g->mark_count == cnt )	/* skip everything involved here */
-			g=g->next;
-		    for ( ; g!=NULL && g->mark_count!=0; g=g->next ); /* skip any uninvolved glyphs */
 		}
 	    }
 	    fea_markedglyphsFree(rpl);
@@ -4662,10 +4767,7 @@ static void fea_ParsePosition(struct parseState *tok, int enumer) {
     /* <marked glyph pos sequence> => context chaining */
     /* [ignore pos] <marked glyph sequence> (, <marked g sequence>)* */
     struct markedglyphs *glyphs = fea_ParseMarkedGlyphs(tok,true,true,false), *g;
-    int cnt, i;
-    struct feat_item *item;
-    char *start, *pt, ch;
-    SplineChar *sc;
+    int cnt;
 
     fea_ParseTok(tok);
     for ( cnt=0, g=glyphs; g!=NULL; g=g->next, ++cnt );
@@ -4817,7 +4919,6 @@ static void fea_ParseLookupDef(struct parseState *tok, int could_be_stat ) {
     char *lookup_name;
     struct feat_item *item, *first_after_mark;
     enum otlookup_type lookuptype;
-    int has_marks;
     int ret;
     int has_single, has_multiple;
 
@@ -4927,11 +5028,8 @@ return;
 
     /* Make sure all entries in this lookup of the same lookup type */
     lookuptype = ot_undef;
-    has_marks = false;
     for ( item=tok->sofar ; item!=NULL && item->type!=ft_lookup_start; item=item->next ) {
 	enum otlookup_type cur = fea_LookupTypeFromItem(item);
-	if ( item->type==ft_ap && item->u2.ap->type == at_mark )
-	    has_marks = true;
 	if ( cur==ot_undef )	/* Some entries in the list (lookupflags) have no type */
 	    /* Tum, ty, tum tum */;
 	else if ( lookuptype==ot_undef )

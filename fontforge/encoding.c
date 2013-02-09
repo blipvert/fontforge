@@ -129,15 +129,9 @@ const char *FindUnicharName(void) {
     /*  ordering and under libiconv it means big-endian */
     iconv_t test;
     static char *goodname = NULL;
-#ifdef UNICHAR_16
-    static char *names[] = { "UCS-2-INTERNAL", "UCS-2", "UCS2", "ISO-10646/UCS2", "UNICODE", NULL };
-    static char *namesle[] = { "UCS-2LE", "UNICODELITTLE", NULL };
-    static char *namesbe[] = { "UCS-2BE", "UNICODEBIG", NULL };
-#else
     static char *names[] = { "UCS-4-INTERNAL", "UCS-4", "UCS4", "ISO-10646-UCS-4", "UTF-32", NULL };
     static char *namesle[] = { "UCS-4LE", "UTF-32LE", NULL };
     static char *namesbe[] = { "UCS-4BE", "UTF-32BE", NULL };
-#endif
     char **testnames;
     int i;
     union {
@@ -175,11 +169,7 @@ return( goodname );
     }
 
     if ( goodname==NULL ) {
-#ifdef UNICHAR_16
-	IError( "I can't figure out your version of iconv(). I need a name for the UCS-2 encoding and I can't find one. Reconfigure --without-iconv. Bye.");
-#else
 	IError( "I can't figure out your version of iconv(). I need a name for the UCS-4 encoding and I can't find one. Reconfigure --without-iconv. Bye.");
-#endif
 	exit( 1 );
     }
 
@@ -542,7 +532,7 @@ return;
 static Encoding *ParseConsortiumEncodingFile(FILE *file) {
     char buffer[200];
     int32 encs[0x10000];
-    int enc, unienc, max, i;
+    int enc, unienc, max;
     Encoding *item;
 
     memset(encs, 0, sizeof(encs));
@@ -1187,10 +1177,11 @@ void SFEncodeToMap(SplineFont *sf,struct cidmap *map) {
 }
 
 enum cmaptype { cmt_out=-1, cmt_coderange, cmt_notdefs, cmt_cid, cmt_max };
+struct coderange { uint32 first, last, cid; };
 struct cmap {
     struct {
 	int n;
-	struct coderange { uint32 first, last, cid; } *ranges;
+	struct coderange *ranges;
     } groups[cmt_max];
     char *registry;
     char *ordering;
@@ -1417,10 +1408,10 @@ return(NULL);
 	    free(fvs->selected);
 	    fvs->selected = gcalloc(new->glyphcnt,sizeof(char));
 	    if ( fvs->map->encmax < new->glyphcnt )
-		fvs->map->map = grealloc(fvs->map->map,(fvs->map->encmax = new->glyphcnt)*sizeof(int));
+		fvs->map->map = grealloc(fvs->map->map,(fvs->map->encmax = new->glyphcnt)*sizeof(int32));
 	    fvs->map->enccount = new->glyphcnt;
 	    if ( fvs->map->backmax < new->glyphcnt )
-		fvs->map->backmap = grealloc(fvs->map->backmap,(fvs->map->backmax = new->glyphcnt)*sizeof(int));
+		fvs->map->backmap = grealloc(fvs->map->backmap,(fvs->map->backmax = new->glyphcnt)*sizeof(int32));
 	    for ( j=0; j<new->glyphcnt; ++j )
 		fvs->map->map[j] = fvs->map->backmap[j] = j;
 	}
@@ -1553,9 +1544,9 @@ return( false );
 		}
 	    }
 	    if ( !j ) {
-		map->map = grealloc(map->map,(map->encmax = map->enccount = max+extras)*sizeof(int));
-		memset(map->map,-1,map->enccount*sizeof(int));
-		memset(map->backmap,-1,sf->glyphcnt*sizeof(int));
+		map->map = grealloc(map->map,(map->encmax = map->enccount = max+extras)*sizeof(int32));
+		memset(map->map,-1,map->enccount*sizeof(int32));
+		memset(map->backmap,-1,sf->glyphcnt*sizeof(int32));
 		map->remap = cmap->remap; cmap->remap = NULL;
 	    }
 	    warned = true;
@@ -1830,9 +1821,9 @@ return(false);			/* Custom, it's whatever's there */
 	    if ( enc_cnt>map->backmax ) {
 		free(map->backmap);
 		map->backmax = enc_cnt;
-		map->backmap = galloc(enc_cnt*sizeof(int));
+		map->backmap = galloc(enc_cnt*sizeof(int32));
 	    }
-	    memset(map->backmap,-1,enc_cnt*sizeof(int));
+	    memset(map->backmap,-1,enc_cnt*sizeof(int32));
 	    for ( i=0; i<map->enccount; ++i ) if ( map->map[i]!=-1 )
 		if ( map->backmap[map->map[i]]==-1 )
 		    map->backmap[map->map[i]] = i;
@@ -1857,10 +1848,10 @@ return( true );
 
     if ( old->enccount<enc_cnt ) {
 	if ( old->encmax<enc_cnt ) {
-	    old->map = grealloc(old->map,enc_cnt*sizeof(int));
+	    old->map = grealloc(old->map,enc_cnt*sizeof(int32));
 	    old->encmax = enc_cnt;
 	}
-	memset(old->map+old->enccount,-1,(enc_cnt-old->enccount)*sizeof(int));
+	memset(old->map+old->enccount,-1,(enc_cnt-old->enccount)*sizeof(int32));
 	old->enccount = enc_cnt;
     }
     old->enc = new_enc;
@@ -1903,7 +1894,7 @@ return( true );
 
 EncMap *EncMapFromEncoding(SplineFont *sf,Encoding *enc) {
     int i,j, extras, found, base, unmax;
-    int *encoded, *unencoded;
+    int32 *encoded, *unencoded;
     EncMap *map;
     struct altuni *altuni;
     SplineChar *sc;
@@ -1918,9 +1909,9 @@ return( NULL );
 	base = 256;
     else if ( enc->char_cnt<=0x10000 )
 	base = 0x10000;
-    encoded = galloc(base*sizeof(int));
-    memset(encoded,-1,base*sizeof(int));
-    unencoded = galloc(sf->glyphcnt*sizeof(int));
+    encoded = galloc(base*sizeof(int32));
+    memset(encoded,-1,base*sizeof(int32));
+    unencoded = galloc(sf->glyphcnt*sizeof(int32));
     unmax = sf->glyphcnt;
 
     for ( i=extras=0; i<sf->glyphcnt; ++i ) if ( (sc=sf->glyphs[i])!=NULL ) {
@@ -1942,7 +1933,7 @@ return( NULL );
 	    else {
 		/* I don't think extras can surpass unmax now, but it doesn't */
 		/*  hurt to leave the code (it's from when we encoded duplicates see below) */
-		if ( extras>=unmax ) unencoded = grealloc(unencoded,(unmax+=300)*sizeof(int));
+		if ( extras>=unmax ) unencoded = grealloc(unencoded,(unmax+=300)*sizeof(int32));
 		unencoded[extras++] = i;
 	    }
 	    for ( altuni=sc->altuni; altuni!=NULL; altuni=altuni->next ) {
@@ -1989,12 +1980,12 @@ return( NULL );
 
     map = chunkalloc(sizeof(EncMap));
     map->enccount = map->encmax = base + extras;
-    map->map = galloc(map->enccount*sizeof(int));
-    memcpy(map->map,encoded,base*sizeof(int));
-    memcpy(map->map+base,unencoded,extras*sizeof(int));
+    map->map = galloc(map->enccount*sizeof(int32));
+    memcpy(map->map,encoded,base*sizeof(int32));
+    memcpy(map->map+base,unencoded,extras*sizeof(int32));
     map->backmax = sf->glyphcnt;
-    map->backmap = galloc(sf->glyphcnt*sizeof(int));
-    memset(map->backmap,-1,sf->glyphcnt*sizeof(int));	/* Just in case there are some unencoded glyphs (duplicates perhaps) */
+    map->backmap = galloc(sf->glyphcnt*sizeof(int32));
+    memset(map->backmap,-1,sf->glyphcnt*sizeof(int32));	/* Just in case there are some unencoded glyphs (duplicates perhaps) */
     for ( i = map->enccount-1; i>=0; --i ) if ( map->map[i]!=-1 )
 	map->backmap[map->map[i]] = i;
     map->enc = enc;
@@ -2021,7 +2012,7 @@ EncMap *CompactEncMap(EncMap *map, SplineFont *sf) {
     map->enccount = inuse;
     map->encmax = inuse;
     map->enc = &custom;
-    memset(map->backmap,-1,sf->glyphcnt*sizeof(int));
+    memset(map->backmap,-1,sf->glyphcnt*sizeof(int32));
     for ( i=inuse-1; i>=0; --i )
 	if ( (gid=map->map[i])!=-1 )
 	    map->backmap[gid] = i;
@@ -2164,7 +2155,7 @@ static int MapAddEncodingSlot(EncMap *map,int gid) {
     int enc;
 
     if ( map->enccount>=map->encmax )
-	map->map = grealloc(map->map,(map->encmax+=10)*sizeof(int));
+	map->map = grealloc(map->map,(map->encmax+=10)*sizeof(int32));
     enc = map->enccount++;
     map->map[enc] = gid;
     map->backmap[gid] = enc;
@@ -2192,8 +2183,8 @@ static int MapAddEnc(SplineFont *sf,SplineChar *sc,EncMap *basemap, EncMap *map,
     int any = false, enc;
 
     if ( gid>=map->backmax ) {
-	map->backmap = grealloc(map->backmap,(map->backmax+=10)*sizeof(int));
-	memset(map->backmap+map->backmax-10,-1,10*sizeof(int));
+	map->backmap = grealloc(map->backmap,(map->backmax+=10)*sizeof(int32));
+	memset(map->backmap+map->backmax-10,-1,10*sizeof(int32));
     }
     if ( map->enc->psnames!=NULL ) {
 	/* Check for multiple encodings */
@@ -2250,7 +2241,7 @@ void SFAddGlyphAndEncode(SplineFont *sf,SplineChar *sc,EncMap *basemap, int base
 	for ( fv=sf->fv; fv!=NULL; fv = fv->nextsame ) {
 	    EncMap *map = fv->map;
 	    if ( gid>=map->backmax )
-		map->backmap = grealloc(map->backmap,(map->backmax=gid+10)*sizeof(int));
+		map->backmap = grealloc(map->backmap,(map->backmax=gid+10)*sizeof(int32));
 	    map->backmap[gid] = -1;
 	}
     } else {
@@ -2271,7 +2262,7 @@ void SFAddGlyphAndEncode(SplineFont *sf,SplineChar *sc,EncMap *basemap, int base
 	    for ( fv=sf->fv; fv!=NULL; fv = fv->nextsame ) if ( fv->sf==sf ) {
 		EncMap *map = fv->map;
 		if ( gid>=map->backmax )
-		    map->backmap = grealloc(map->backmap,(map->backmax=gid+10)*sizeof(int));
+		    map->backmap = grealloc(map->backmap,(map->backmax=gid+10)*sizeof(int32));
 		map->backmap[gid] = -1;
 	    }
 	}
@@ -2455,10 +2446,6 @@ return( -1 );
 	}
 	if ( tpt-(char *) to == sizeof(unichar_t) )
 return( to[0] );
-#ifdef UNICHAR_16
-	else if ( tpt-(char *) to == 4 && to[0]>=0xd800 && to[0]<0xdc00 && to[1]>=0xdc00 )
-return( ((to[0]-0xd800)<<10) + (to[1]-0xdc00) + 0x10000 );
-#endif
     } else if ( encname->tounicode_func!=NULL ) {
 return( (encname->tounicode_func)(enc) );
     }
@@ -2487,20 +2474,8 @@ return( -1 );
     } else if ( enc->fromunicode!=NULL ) {
 	/* I don't see how there can be any state to reset in this direction */
 	/*  So I don't reset it */
-#ifdef UNICHAR_16
-	if ( uni<0x10000 ) {
-	    from[0] = uni;
-	    fromlen = sizeof(unichar_t);
-	} else {
-	    uni -= 0x10000;
-	    from[0] = 0xd800 + (uni>>10);
-	    from[1] = 0xdc00 + (uni&0x3ff);
-	    fromlen = 2*sizeof(unichar_t);
-	}
-#else
 	from[0] = uni;
 	fromlen = sizeof(unichar_t);
-#endif
 	fpt = (char *) from; tpt = (char *) to; tolen = sizeof(to);
 	iconv(enc->fromunicode,NULL,NULL,NULL,NULL);	/* reset shift in/out, etc. */
 	if ( iconv(enc->fromunicode,&fpt,&fromlen,&tpt,&tolen)==(size_t) -1 )

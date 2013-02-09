@@ -301,8 +301,8 @@ void help(char *file) {
 #else
 
 void help(char *file) {
-    char fullspec[1024], *temp, *pt;
-
+    char fullspec[PATH_MAX], *temp, *pt;
+    
     if ( browser[0]=='\0' )
 	findbrowser();
 #ifndef __CygWin
@@ -315,16 +315,13 @@ return;
     if ( strstr(file,"http://")==NULL ) {
 	memset(fullspec,0,sizeof fullspec);
 	if ( ! GFileIsAbsolute(file) ) {
+	    printf("...helpdir:%p\n", helpdir );
 	    if ( helpdir==NULL || *helpdir=='\0' ) {
-#if defined(DOCDIR)
-		strncpy(fullspec,DOCDIR "/",sizeof fullspec - 1 - strlen(file));
-#elif defined(SHAREDIR)
-		strncpy(fullspec,SHAREDIR "/doc/fontforge/",sizeof fullspec - 1 - strlen(file));
-#else
-		strncpy(fullspec,"/usr/local/share/doc/fontforge/",sizeof fullspec - 1 - strlen(file));
-#endif
-	    } else
+		snprintf(fullspec, PATH_MAX, "%s", getHelpDir());
+	    } else {
+		printf("...helpdir2:%s\n", helpdir );
 		strncpy(fullspec,helpdir,sizeof fullspec - 1);
+	    }
 	}
 	strcat(fullspec,file);
 	if (( pt = strrchr(fullspec,'#') )!=NULL ) *pt ='\0';
@@ -605,7 +602,6 @@ return( ret );
 
 static void MouseToPos(GEvent *event,int *_l, int *_c) {
     int l,c=0;
-    char *end;
 
     GDrawSetFont(errdata.v,errdata.font);
     l = event->u.mouse.y/errdata.fh + errdata.offtop;
@@ -613,12 +609,9 @@ static void MouseToPos(GEvent *event,int *_l, int *_c) {
 	l = errdata.cnt-1;
 	if ( l>=0 )
 	    c = strlen(errdata.errlines[l]);
-    } else if ( (GDrawHasCairo(errdata.v)&gc_pango) && l>=0 ) {
+    } else if ( l>=0 ) {
 	GDrawLayoutInit(errdata.v,errdata.errlines[l],-1,NULL);
 	c = GDrawLayoutXYToIndex(errdata.v,event->u.mouse.x-3,4);
-    } else if ( l>=0 ) {
-	GDrawGetText8PtFromPos(errdata.v,errdata.errlines[l],-1,NULL,event->u.mouse.x-3,&end);
-	c = end - errdata.errlines[l];
     }
     *_l = l;
     *_c = c;
@@ -676,33 +669,27 @@ return( GGadgetDispatchEvent(errdata.vsb,event));
 	      if ( s_l>e_l ) {
 		  s_l = e_l; s_c = e_c; e_l = errdata.start_l; e_c = errdata.start_c;
 	      }
-	      if ( GDrawHasCairo(gw)&gc_pango )
-		  GDrawLayoutInit(gw,errdata.errlines[i+errdata.offtop],-1,NULL);
+	      GDrawLayoutInit(gw,errdata.errlines[i+errdata.offtop],-1,NULL);
 	      if ( i+errdata.offtop >= s_l && i+errdata.offtop <= e_l ) {
 		  if ( i+errdata.offtop > s_l )
 		      xs = 0;
-		  else if ( GDrawHasCairo(gw)&gc_pango ) {
+		  else {
 		      GRect pos;
 		      GDrawLayoutIndexToPos(gw,s_c,&pos);
 		      xs = pos.x+3;
-		  } else
-		      xs = GDrawGetText8Width(gw,errdata.errlines[i+errdata.offtop],s_c,NULL);
+		  }
 		  if ( i+errdata.offtop < e_l )
 		      xe = 3000;
-		  else if ( GDrawHasCairo(gw)&gc_pango ) {
+		  else {
 		      GRect pos;
 		      GDrawLayoutIndexToPos(gw,s_c,&pos);
 		      xe = pos.x+pos.width+3;
-		  } else
-		      xe = GDrawGetText8Width(gw,errdata.errlines[i+errdata.offtop],e_c,NULL);
+		  }
 		  r.x = xs+3; r.width = xe-xs;
 		  r.y = i*errdata.fh; r.height = errdata.fh;
 		  GDrawFillRect(gw,&r,ACTIVE_BORDER);
 	      }
-	      if ( GDrawHasCairo(gw)&gc_pango )
-		  GDrawLayoutDraw(gw,3,i*errdata.fh+errdata.as,MAIN_FOREGROUND);
-	      else
-		  GDrawDrawBiText8(gw,3,i*errdata.fh+errdata.as,errdata.errlines[i+errdata.offtop],-1,NULL,MAIN_FOREGROUND);
+	      GDrawLayoutDraw(gw,3,i*errdata.fh+errdata.as,MAIN_FOREGROUND);
 	  }
       break;
       case et_char:
@@ -761,16 +748,6 @@ static void CreateErrorWindow(void) {
     GGadgetData gd;
     extern int _GScrollBar_Width;
 
-    memset(&rq,0,sizeof(rq));
-    rq.utf8_family_name = SANS_UI_FAMILIES;
-    rq.point_size = 10;
-    rq.weight = 400;
-    errdata.font = GDrawInstanciateFont(NULL,&rq);
-    errdata.font = GResourceFindFont("Warnings.Font",errdata.font);
-    GDrawFontMetrics(errdata.font,&as,&ds,&ld);
-    errdata.as = as;
-    errdata.fh = as+ds;
-
     GDrawGetSize(GDrawGetRoot(NULL),&size);
 
     memset(&wattrs,0,sizeof(wattrs));
@@ -781,10 +758,20 @@ static void CreateErrorWindow(void) {
     wattrs.positioned = true;
     wattrs.utf8_window_title = _("Warnings");
     pos.width = GDrawPointsToPixels(NULL,GGadgetScale(400));
-    pos.height = 5*errdata.fh;
+    pos.height = GDrawPointsToPixels(NULL,GGadgetScale(100));
     pos.x = size.width - pos.width - 10;
     pos.y = size.height - pos.height - 30;
     errdata.gw = gw = GDrawCreateTopWindow(NULL,&pos,warnings_e_h,&errdata,&wattrs);
+
+    memset(&rq,0,sizeof(rq));
+    rq.utf8_family_name = SANS_UI_FAMILIES;
+    rq.point_size = 10;
+    rq.weight = 400;
+    errdata.font = GDrawInstanciateFont(NULL,&rq);
+    errdata.font = GResourceFindFont("Warnings.Font",errdata.font);
+    GDrawWindowFontMetrics(errdata.gw,errdata.font,&as,&ds,&ld);
+    errdata.as = as;
+    errdata.fh = as+ds;
 
     memset(&gd,0,sizeof(gd));
     gd.pos.y = 0; gd.pos.height = pos.height;

@@ -1,4 +1,33 @@
+# Copyright (C) 2000-2012 by George Williams
+# Copyright (C) 2012 by Barry Schwartz
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# The name of the author may not be used to endorse or promote products
+# derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+# EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+# OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 ACLOCAL_AMFLAGS = -I m4
+
+#--------------------------------------------------------------------------
 
 AM_CPPFLAGS =
 AM_LDFLAGS =
@@ -13,105 +42,100 @@ noinst_LTLIBRARIES =
 lib_LTLIBRARIES =
 EXTRA_LTLIBRARIES =
 
-include libltdl/Makefile.inc
+include $(top_srcdir)/mk/layout.am
 
-SUBDIRS = inc
-SUBDIRS += pluginloading
-SUBDIRS += plugins
-SUBDIRS += Unicode gutils
+#--------------------------------------------------------------------------
+
+SUBDIRS = inc libltdl Unicode gutils hotkeys
 
 if GRAPHICAL_USER_INTERFACE
 SUBDIRS += gdraw
 endif GRAPHICAL_USER_INTERFACE
 
+SUBDIRS += plugins
 SUBDIRS += fontforge po htdocs pycontrib
-SUBDIRS += $(subdirs)
+SUBDIRS += cidmap
 SUBDIRS += tests
 
-pkgconfigdir = ${libdir}/pkgconfig
-nodist_pkgconfig_DATA = fontforge.pc libfontforge.pc	\
-	libfontforgeexe.pc
+if PYTHON_EXTENSION
+SUBDIRS += pyhook
+endif PYTHON_EXTENSION
+
+if MACINTOSH
+SUBDIRS += mackeys
+endif MACINTOSH
+
+if DESKTOP
+SUBDIRS += desktop
+endif DESKTOP
+
+if FONTTOOLS
+SUBDIRS += fonttools
+endif FONTTOOLS
+
+nodist_pkgconfig_DATA = libfontforge.pc libfontforgeexe.pc
 
 EXTRA_DIST += LICENSE README-Mac.html README-MS.html README-unix	\
-	README-Unix.html Readme.VMS
+	README-Unix.html Readme.VMS create-osx-app-bundle.sh Portfile
 
+uninstall-local:
+	(cd desktop; $(MAKE) $(AM_MAKEFLAGS) uninstall)
 
+#--------------------------------------------------------------------------
 
+INDENT_DIRS = Unicode gutils gdraw fontforge pyhook tests fonttools
 
+INDENT_PROFILE = \
+	--k-and-r-style \
+	--line-length110 \
+	--indent-level4 \
+	--no-tabs \
+	--blank-lines-after-procedures \
+	--no-blank-lines-after-declarations \
+	--blank-before-sizeof \
+	--space-after-cast \
+	--space-after-for \
+	--space-after-if \
+	--space-after-while \
+	--space-special-semicolon \
+	--no-space-after-function-call-names \
+	--no-space-after-parentheses \
+	--dont-break-procedure-type \
+	--dont-break-function-decl-args \
+	--no-blank-lines-after-commas \
+	--break-after-boolean-operator \
+	--dont-line-up-parentheses \
+	--paren-indentation4 \
+	--braces-on-if-line \
+	--braces-on-func-def-line \
+	--braces-on-struct-decl-line \
+	--case-brace-indentation4 \
+	--declaration-indentation1 \
+	--cuddle-do-while \
+	--cuddle-else \
+	--honour-newlines \
+	--preprocessor-indentation1 \
+	--case-indentation0 \
+	--continue-at-parentheses \
+	--leave-preprocessor-space \
+	--dont-format-comments \
+	-T\ FILE \
+	-T\ AnchorPoint \
+	-T\ BDFFont \
+	-T\ MMSet \
+	-T\ SplineChar \
+	-T\ SplineFont
 
+write-indent-profiles:
+	@for dir in $(INDENT_DIRS); do \
+		rm -f "$(top_srcdir)/$${dir}/.indent.pro"; \
+		echo rm -f "$(top_srcdir)/$${dir}/.indent.pro"; \
+		for flag in $(value INDENT_PROFILE); do \
+			echo "" "$${flag}" >> "$(top_srcdir)/$${dir}/.indent.pro"; \
+			echo echo '""' "$${flag}" ">>" "$(top_srcdir)/$${dir}/.indent.pro"; \
+		done; \
+	done
 
+#--------------------------------------------------------------------------
 
-#install_incs:
-#	mkdir -p $(DESTDIR)$(includedir)/fontforge
-#	$(INSTALL_DATA) $(srcdir)/inc/*.h $(DESTDIR)$(includedir)/fontforge
-##	$(INSTALL_DATA) `grep -L GGadget $(srcdir)/fontforge/*.h` $(DESTDIR)$(includedir)/fontforge
-#	( for file in $(srcdir)/fontforge/*.h ; do if grep GGadget $$file >/dev/null 2>&1 ; then echo pointless >/dev/null ; else $(INSTALL_DATA) $$file $(DESTDIR)$(includedir)/fontforge ; fi ; done )
-#
-#install_docs:
-#	mkdir -p $(DESTDIR)$(docdir)
-#	mkdir -p $(DESTDIR)$(docdir)/flags $(DESTDIR)$(docdir)/ja
-##explicit use of sh to make sure we don't invoke csh with different "if" syntax
-#	-sh -c "if test -d $(srcdir)/htdocs/ja >/dev/null ; then mkdir -p $(DESTDIR)$(docdir)/ja ; fi"
-#	-$(INSTALL_DATA) $(srcdir)/htdocs/*.{html,png,gif,pdf} $(DESTDIR)$(docdir)
-#	-$(INSTALL_DATA) $(srcdir)/htdocs/flags/* $(DESTDIR)$(docdir)/flags
-#	-$(INSTALL_DATA) $(srcdir)/htdocs/ja/* $(DESTDIR)$(docdir)/ja
-#
-#install_pycontrib:
-#	mkdir -p $(DESTDIR)$(pythondir)
-#	( cd pycontrib ; $(INSTALL_DATA) *.py $(DESTDIR)$(pythondir) )
-#
-#install_prog:
-#	mkdir -p $(DESTDIR)$(bindir)
-#	mkdir -p $(DESTDIR)$(mandir)/man1
-#	mkdir -p $(DESTDIR)$(sharedir)
-#	mkdir -p $(DESTDIR)$(pixmapsdir)
-#	$(LIBTOOL) --mode=install $(INSTALL) -c fontforge/fontforge $(DESTDIR)$(bindir)
-#	$(LIBTOOL) --mode=install $(INSTALL) -c fontforge/sfddiff $(DESTDIR)$(bindir)
-#	$(LIBTOOL) --mode=install $(INSTALL) -c fontforge/fontimage $(DESTDIR)$(bindir)
-#	$(LIBTOOL) --mode=install $(INSTALL) -c fontforge/fontlint $(DESTDIR)$(bindir)
-##	-rm -f $(DESTDIR)$(bindir)/pfaedit
-##	(cd $(DESTDIR)$(bindir) ; ln -s fontforge pfaedit)
-##	$(INSTALL_DATA) fontforge/pfaedit-*.ui $(DESTDIR)$(sharedir)
-##The next line will fail for most installs. If you have downloaded the cidmaps
-## this will install them. If you haven't it won't. You only need the cidmaps
-## if you are editing CID keyed files (and even then you can live without them
-#	-$(INSTALL_DATA) $(srcdir)/cidmap/*.cidmap $(DESTDIR)$(sharedir) >/dev/null 2>&1
-#	-$(INSTALL_DATA) $(srcdir)/fontforge/pixmaps/*.png $(DESTDIR)$(pixmapsdir)
-#
-#install: $(DESTDIR)$(sharedir) all install_libs install_incs install_po install_prog install_pycontrib
-## You may need to be root to do the install
-##explicit use of sh to make sure we don't invoke csh with different "if" syntax
-#	sh -c "if test -d $(srcdir)/htdocs >/dev/null ; then $(MAKE) install_docs ; fi"
-#	sh -c "if test -d fontforge/FontForge.app >/dev/null ; then rm -rf /Applications/FontForge.app ; mv fontforge/FontForge.app /Applications ; ln -s /usr/local/bin/fontforge /Applications/FontForge.app/Contents/MacOS/FontForge ; fi"
-#	sh < systemspecific
-##we don't always create a setup.py
-#	-(cd pyhook ; if test -r setup.py ; then python setup.py install --prefix=$(prefix) --root=$(DESTDIR); for dir in * ; do if test -d $$dir -a "$$dir" != "CVS" ; then  rm -rf $$dir ; fi; done ; fi )
-#
-#install_py: $(DESTDIR)$(sharedir) all install_libs install_incs install_po install_prog install_pycontrib
-## You may need to be root to do the install
-##explicit use of sh to make sure we don't invoke csh with different "if" syntax
-#	sh -c "if test -d $(srcdir)/htdocs >/dev/null ; then $(MAKE) install_docs ; for dir in * ; do if test -d $$dir ; then  rm -rf $$dir ; fi; done ; fi"
-#	sh -c "if test -d fontforge/FontForge.app >/dev/null ; then rm -rf /Applications/FontForge.app ; mv fontforge/FontForge.app /Applications ; ln -s /usr/local/bin/fontforge /Applications/FontForge.app/Contents/MacOS/FontForge ; fi"
-#	sh < systemspecific
-#	-(cd pyhook ; python setup.py bdist --formats=gztar ; cp dist/fontforge-*.tar.gz $(DESTDIR)/tmp; for dir in * ; do if test -d $$dir -a "$$dir" != "CVS" ; then  rm -rf $$dir ; fi; done )
-#
-#install_gtk: fontforgegtk
-#	(cd gtkui ; $(MAKE) install )
-#
-#uninstall:
-#	-rm $(DESTDIR)$(bindir)/fontforge
-#	-rm $(DESTDIR)$(bindir)/sfddiff
-#	-rm $(DESTDIR)$(bindir)/fontimage
-#	-rm $(DESTDIR)$(bindir)/fontlint
-#	-rm $(DESTDIR)$(sharedir)/pfaedit-*.ui
-#	-rm $(DESTDIR)$(localedir)/*/LC_MESSAGES/FontForge.mo
-#	-rm $(DESTDIR)$(libdir)/libgdraw.*
-#	-rm $(DESTDIR)$(libdir)/libgutils.*
-#	-rm $(DESTDIR)$(libdir)/libgioftp.*
-#	-rm $(DESTDIR)$(libdir)/libgunicode.*
-#	-rm $(DESTDIR)$(libdir)/libfontforge.*
-#	-rm $(DESTDIR)$(sharedir)/*.cidmap
-#	-rm $(DESTDIR)$(includedir)/fontforge/*.h
-#	-rm -rf $(DESTDIR)$(docdir)/*
-#	-rm $(DESTDIR)$(libdir)/pkgconfig/fontforge.pc
-#	-rm $(DESTDIR)$(pythondir)/*
+-include $(top_srcdir)/git.mk

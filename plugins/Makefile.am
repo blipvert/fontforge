@@ -1,3 +1,30 @@
+# Copyright (C) 2000-2012 by George Williams
+# Copyright (C) 2012 by Barry Schwartz
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# The name of the author may not be used to endorse or promote products
+# derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+# EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+# OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 plugindir = ${pkglibdir}/plugins
 
 AM_CPPFLAGS = "-I$(top_builddir)/inc" "-I$(top_srcdir)/inc"		\
@@ -6,81 +33,10 @@ AM_CPPFLAGS = "-I$(top_builddir)/inc" "-I$(top_srcdir)/inc"		\
 
 plugin_LTLIBRARIES =
 
-#--------------------------------------------------------------------------
-#
-# Encoding plugins.
-
 if PLUGIN_GB12345
 plugin_LTLIBRARIES += gb12345.la
 gb12345_la_SOURCES = gb12345.c
 gb12345_la_LDFLAGS = -module -avoid-version
 endif PLUGIN_GB12345
 
-#--------------------------------------------------------------------------
-#
-# Plugins internal to the design of FontForge.
-
-if PLUGZLIB
-plugin_LTLIBRARIES += plugzlib.la
-plugzlib_la_SOURCES = plug.c
-plugzlib_la_LDFLAGS = -module -avoid-version
-plugzlib_la_LIBADD = $(ZLIB_LIBS)
-endif PLUGZLIB
-
-if PLUGGIFLIB
-plugin_LTLIBRARIES += pluggiflib.la
-pluggiflib_la_SOURCES = plug.c
-pluggiflib_la_LDFLAGS = -module -avoid-version
-pluggiflib_la_LIBADD = $(GIFLIB_LIBS)
-endif PLUGGIFLIB
-
-if PLUGLIBJPEG
-plugin_LTLIBRARIES += pluglibjpeg.la
-pluglibjpeg_la_SOURCES = plug.c
-pluglibjpeg_la_LDFLAGS = -module -avoid-version
-pluglibjpeg_la_LIBADD = $(LIBJPEG_LIBS)
-endif PLUGLIBJPEG
-
-if PLUGLIBPNG
-plugin_LTLIBRARIES += pluglibpng.la
-pluglibpng_la_SOURCES = plug.c
-pluglibpng_la_LDFLAGS = -module -avoid-version
-pluglibpng_la_LIBADD = $(LIBPNG_LIBS)
-endif PLUGLIBPNG
-
-if PLUGLIBTIFF
-plugin_LTLIBRARIES += pluglibtiff.la
-pluglibtiff_la_SOURCES = plug.c
-pluglibtiff_la_LDFLAGS = -module -avoid-version
-pluglibtiff_la_LIBADD = $(LIBTIFF_LIBS)
-endif PLUGLIBTIFF
-
-if PLUGLIBXML
-plugin_LTLIBRARIES += pluglibxml.la
-pluglibxml_la_SOURCES = plug.c
-pluglibxml_la_LDFLAGS = -module -avoid-version
-pluglibxml_la_LIBADD = $(LIBXML_LIBS)
-endif PLUGLIBXML
-
-if PLUGLIBUNINAMESLIST
-plugin_LTLIBRARIES += pluglibuninameslist.la
-pluglibuninameslist_la_SOURCES = plug.c
-pluglibuninameslist_la_LDFLAGS = -module -avoid-version
-pluglibuninameslist_la_LIBADD = $(LIBUNINAMESLIST_LIBS)
-endif PLUGLIBUNINAMESLIST
-
-#if PLUGLIBUNINAMESLISTFR
-#plugin_LTLIBRARIES += pluglibuninameslistfr.la
-#pluglibuninameslistfr_la_SOURCES = plug.c
-#pluglibuninameslistfr_la_LDFLAGS = -module -avoid-version
-#pluglibuninameslistfr_la_LIBADD = $(LIBUNINAMESLIST_FR_LIBS)
-#endif PLUGLIBUNINAMESLISTFR
-
-if PLUGLIBSPIRO
-plugin_LTLIBRARIES += pluglibspiro.la
-pluglibspiro_la_SOURCES = plug.c
-pluglibspiro_la_LDFLAGS = -module -avoid-version
-pluglibspiro_la_LIBADD = $(LIBSPIRO_LIBS)
-endif PLUGLIBSPIRO
-
-#--------------------------------------------------------------------------
+-include $(top_srcdir)/git.mk

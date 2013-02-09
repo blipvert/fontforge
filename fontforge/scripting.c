@@ -46,6 +46,7 @@
 #include "plugins.h"
 #include "scripting.h"
 #include "scriptfuncs.h"
+#include "flaglist.h"
 
 int no_windowing_ui = false;
 int running_script = false;
@@ -1107,11 +1108,7 @@ static void bUtf8(Context *c) {
 	    ScriptError( c, "Bad value for argument" );
 	buf[0] = c->a.vals[1].u.ival; buf[1] = 0;
 	c->return_val.type = v_str;
-#ifdef UNICHAR_16
-	c->return_val.u.sval = u322utf8_copy(buf);
-#else
 	c->return_val.u.sval = u2utf8_copy(buf);
-#endif
     } else if ( c->a.vals[1].type==v_arr || c->a.vals[1].type==v_arrfree ) {
 	Array *arr = c->a.vals[1].u.aval;
 	temp = galloc((arr->argc+1)*sizeof(int32));
@@ -1124,11 +1121,7 @@ static void bUtf8(Context *c) {
 	}
 	temp[i] = 0;
 	c->return_val.type = v_str;
-#ifdef UNICHAR_16
-	c->return_val.u.sval = u322utf8_copy(temp);
-#else
 	c->return_val.u.sval = u2utf8_copy(temp);
-#endif
 	free(temp);
     } else
 	ScriptError( c, "Bad type for argument" );
@@ -1538,11 +1531,7 @@ static void bLoadPluginDir(Context *c) {
 	_dir = script2utf8_copy(c->a.vals[1].u.sval);
 	dir = utf82def_copy(_dir); free(_dir);
     }
-#if !defined(NODYNAMIC)
     LoadPluginDir(dir);
-#else
-    ScriptError(c,"This version of fontforge does not support plugins");
-#endif
     free(dir);
 }
 
@@ -2842,6 +2831,60 @@ static void bSelectWorthOutputting(Context *c) {
     }
 }
 
+static void bSelectGlyphsSplines(Context *c) {
+    FontViewBase *fv = c->curfv;
+    int i, gid;
+    EncMap *map = fv->map;
+    SplineFont *sf = fv->sf;
+    int layer = fv->active_layer;
+    int add = 0;
+
+    if ( c->a.argc!=1 && c->a.argc!=2 )
+	ScriptError( c, "Too many arguments");
+    if ( c->a.argc==2 ) {
+	if ( c->a.vals[1].type!=v_int )
+	    ScriptError( c, "Bad type for argument" );
+	add = c->a.vals[1].u.ival;
+    }
+
+    if ( add ) {
+	for ( i=0; i< map->enccount; ++i )
+	    fv->selected[i] |= ( (gid=map->map[i])!=-1 && sf->glyphs[gid]!=NULL &&
+		sf->glyphs[gid]->layers[layer].splines!=NULL );
+    } else {
+	for ( i=0; i< map->enccount; ++i )
+	    fv->selected[i] = ( (gid=map->map[i])!=-1 && sf->glyphs[gid]!=NULL &&
+		sf->glyphs[gid]->layers[layer].splines!=NULL );
+    }
+}
+
+static void bSelectGlyphsReferences(Context *c) {
+    FontViewBase *fv = c->curfv;
+    int i, gid;
+    EncMap *map = fv->map;
+    SplineFont *sf = fv->sf;
+    int layer = fv->active_layer;
+    int add = 0;
+
+    if ( c->a.argc!=1 && c->a.argc!=2 )
+	ScriptError( c, "Too many arguments");
+    if ( c->a.argc==2 ) {
+	if ( c->a.vals[1].type!=v_int )
+	    ScriptError( c, "Bad type for argument" );
+	add = c->a.vals[1].u.ival;
+    }
+
+    if ( add ) {
+	for ( i=0; i< map->enccount; ++i )
+	    fv->selected[i] |= ( (gid=map->map[i])!=-1 && sf->glyphs[gid]!=NULL &&
+		sf->glyphs[gid]->layers[layer].refs!=NULL );
+    } else {
+	for ( i=0; i< map->enccount; ++i )
+	    fv->selected[i] = ( (gid=map->map[i])!=-1 && sf->glyphs[gid]!=NULL &&
+		sf->glyphs[gid]->layers[layer].refs!=NULL);
+    }
+}
+
 static void bSelectGlyphsBoth(Context *c) {
     FontViewBase *fv = c->curfv;
     int i, gid;
@@ -3022,8 +3065,8 @@ return;
 	c->curfv->selected = grealloc(c->curfv->selected,newcnt);
 	if ( newcnt>map->encmax ) {
 	    memset(c->curfv->selected+map->enccount,0,newcnt-map->enccount);
-	    map->map = grealloc(map->map,(map->encmax=newcnt+10)*sizeof(int));
-	    memset(map->map+map->enccount,-1,(newcnt-map->enccount)*sizeof(int));
+	    map->map = grealloc(map->map,(map->encmax=newcnt+10)*sizeof(int32));
+	    memset(map->map+map->enccount,-1,(newcnt-map->enccount)*sizeof(int32));
 	}
     }
     map->enccount = newcnt;
@@ -4133,11 +4176,13 @@ static void FVApplySubstitution(FontViewBase *fv,uint32 script, uint32 lang, uin
 	    /* This is deliberatly in the else. We don't want to remove a glyph*/
 	    /*  we are about to replace */
 	    for ( gid2=0; gid2<sf->glyphcnt; ++gid2 ) if ( (sc2=replacements[gid2])!=NULL ) {
-		RefChar *rf, *rnext;
-		for ( rf = sc2->layers[ly_fore].refs; rf!=NULL; rf=rnext ) {
-		    rnext = rf->next;
-		    if ( rf->sc==sc )
-			SCRefToSplines(sc2,rf,ly_fore);
+		if (sc2->layers && ly_fore < sc2->layer_cnt) {
+		    RefChar *rf, *rnext;
+		    for ( rf = sc2->layers[ly_fore].refs; rf!=NULL; rf=rnext ) {
+		        rnext = rf->next;
+		        if ( rf->sc==sc )
+			    SCRefToSplines(sc2,rf,ly_fore);
+		    }
 		}
 	    }
 	    SFRemoveGlyph(sf,sc,&flags);
@@ -4470,19 +4515,48 @@ static ItalicInfo default_ii = {
 };
 
 static void bItalic(Context *c) {
-    int i;
-
-    if ( c->a.argc>2 )
+    if ( c->a.argc>3 )
 	ScriptError( c, "Wrong number of arguments");
-    for ( i=1; i<c->a.argc; ++i ) {
-	if ( c->a.vals[i].type==v_real )
-	    default_ii.italic_angle = c->a.vals[i].u.fval;
-	else if ( c->a.vals[i].type==v_int )
-	    default_ii.italic_angle = c->a.vals[i].u.ival;
+
+    if ( c->a.argc>1) {
+	if ( c->a.vals[1].type==v_real )
+	    default_ii.italic_angle = c->a.vals[1].u.fval;
+	else if ( c->a.vals[1].type==v_int )
+	    default_ii.italic_angle = c->a.vals[1].u.ival;
+	else
+	    ScriptError(c,"Bad argument type in Italic");
+    }
+    if ( c->a.argc>2) {
+	if ( c->a.vals[1].type==v_real )
+	    default_ii.xheight_percent = c->a.vals[1].u.fval;
+	else if ( c->a.vals[1].type==v_int )
+	    default_ii.xheight_percent = c->a.vals[1].u.ival;
 	else
 	    ScriptError(c,"Bad argument type in Italic");
     }
     MakeItalic(c->curfv,NULL,&default_ii);
+}
+
+static void bChangeWeight(Context *c) {
+    enum embolden_type type = embolden_auto;
+    struct lcg_zones zones;
+
+    if ( c->a.argc>2 )
+	ScriptError( c, "Wrong number of arguments");
+
+    memset(&zones, 0, sizeof(zones));
+    zones.counter_type = ct_auto;
+    zones.serif_fuzz = 0.9;
+    zones.removeoverlap = 1;
+
+    if ( c->a.vals[1].type==v_real )
+	zones.stroke_width = c->a.vals[1].u.fval;
+    else if ( c->a.vals[1].type==v_int )
+	zones.stroke_width = c->a.vals[1].u.ival;
+    else
+	ScriptError(c,"Bad argument type in ChangeWeight");
+
+    FVEmbolden(c->curfv,type, &zones);
 }
 
 static void bSmallCaps(Context *c) {
@@ -4934,9 +5008,14 @@ static void bNearlyLines(Context *c) {
 }
 
 static void bAddExtrema(Context *c) {
-    if ( c->a.argc!=1 )
+    if ( c->a.argc==1 )
+	FVAddExtrema(c->curfv, false);
+    else if ( c->a.argc==2 ) {
+	if ( c->a.vals[1].type!=v_int )
+	    ScriptError( c, "Bad type for argument" );
+	FVAddExtrema(c->curfv, (c->a.vals[1].u.ival != 0));
+    } else
 	ScriptError( c, "Wrong number of arguments");
-    FVAddExtrema(c->curfv);
 }
 
 static void SCMakeLine(SplineChar *sc) {
@@ -5121,9 +5200,10 @@ static void bBuildAccented(Context *c) {
 }
 
 static void bAppendAccent(Context *c) {
-    int pos = -1;
-    char *glyph_name = NULL;
-    int uni = -1;
+    int pos = ____NOPOSDATAGIVEN;	/* unicode char pos info, see #define for (uint32)(utype2[]) */
+    char *glyph_name = NULL;		/* unicode char name */
+    int uni = -1;			/* unicode char value */
+
     int ret;
     SplineChar *sc;
 
@@ -5139,10 +5219,10 @@ static void bAppendAccent(Context *c) {
     else
 	uni = c->a.vals[1].u.ival;
     if ( c->a.argc==3 )
-	pos = c->a.vals[2].u.ival;
+	pos = (uint32)(c->a.vals[2].u.ival);
 
     sc = GetOneSelChar(c);
-    ret = SCAppendAccent(sc,ly_fore,glyph_name,uni,pos);
+    ret = SCAppendAccent(sc,ly_fore,glyph_name,uni,(uint32)(pos));
     if ( ret==1 )
 	ScriptError(c,"No base character reference found");
     else if ( ret==2 )
@@ -5289,19 +5369,19 @@ static void bAutoHint(Context *c) {
 static void bSubstitutionPoints(Context *c) {
     if ( c->a.argc!=1 )
 	ScriptError( c, "Wrong number of arguments");
-    FVAutoHint(c->curfv);
+    FVAutoHintSubs(c->curfv);
 }
 
 static void bAutoCounter(Context *c) {
     if ( c->a.argc!=1 )
 	ScriptError( c, "Wrong number of arguments");
-    FVAutoHint(c->curfv);
+    FVAutoCounter(c->curfv);
 }
 
 static void bDontAutoHint(Context *c) {
     if ( c->a.argc!=1 )
 	ScriptError( c, "Wrong number of arguments");
-    FVAutoHint(c->curfv);
+    FVDontAutoHint(c->curfv);
 }
 
 static void bAutoInstr(Context *c) {
@@ -6245,9 +6325,9 @@ static void bCIDChangeSubFont(Context *c) {
 	free(c->curfv->selected);
 	c->curfv->selected = gcalloc(new->glyphcnt,sizeof(char));
 	if ( new->glyphcnt>map->encmax )
-	    map->map = grealloc(map->map,(map->encmax = new->glyphcnt)*sizeof(int));
+	    map->map = grealloc(map->map,(map->encmax = new->glyphcnt)*sizeof(int32));
 	if ( new->glyphcnt>map->backmax )
-	    map->backmap = grealloc(map->backmap,(map->backmax = new->glyphcnt)*sizeof(int));
+	    map->backmap = grealloc(map->backmap,(map->backmax = new->glyphcnt)*sizeof(int32));
 	for ( i=0; i<new->glyphcnt; ++i )
 	    map->map[i] = map->backmap[i] = i;
 	map->enccount = new->glyphcnt;
@@ -7576,8 +7656,7 @@ return;
     }
 }
 
-struct flaglist { char *name; int flag; };
-
+/* Anchor type: see 'enum anchor_type' in splinefont.h */
 static struct flaglist ap_types[] = {
     { "mark", at_mark },
     { "base", at_basechar },
@@ -7586,7 +7665,7 @@ static struct flaglist ap_types[] = {
     { "entry", at_centry },
     { "exit", at_cexit },
     { "baselig", at_baselig },
-    { NULL, 0 }
+    FLAGLIST_EMPTY
 };
 
 static void bGetAnchorPoints(Context *c) {
@@ -7618,7 +7697,7 @@ static void bGetAnchorPoints(Context *c) {
 	temp->vals[0].type = v_str;
 	temp->vals[0].u.sval = copy(ap->anchor->name);
 	temp->vals[1].type = v_str;
-	temp->vals[1].u.sval = copy(ap_types[ap->type].name);
+	temp->vals[1].u.sval = copy(FindNameOfFlag(ap_types,ap->type));
 	temp->vals[2].type = v_real;
 	temp->vals[2].u.fval = ap->me.x;
 	temp->vals[3].type = v_real;
@@ -8117,6 +8196,8 @@ static struct builtins { char *name; void (*func)(Context *); int nofontok; } bu
     { "SelectChanged", bSelectChanged, 0 },
     { "SelectHintingNeeded", bSelectHintingNeeded, 0 },
     { "SelectWorthOutputting", bSelectWorthOutputting, 0 },
+    { "SelectGlyphsSplines", bSelectGlyphsSplines },
+    { "SelectGlyphsReferences", bSelectGlyphsReferences },
     { "SelectGlyphsBoth", bSelectGlyphsBoth, 0 },
     { "SelectByATT", bSelectByATT, 0 },
     { "SelectByPosSub", bSelectByPosSub, 0 },
@@ -8173,6 +8254,7 @@ static struct builtins { char *name; void (*func)(Context *); int nofontok; } bu
     { "Move", bMove, 0 },
     { "ScaleToEm", bScaleToEm, 0 },
     { "Italic", bItalic, 0 },
+    { "ChangeWeight", bChangeWeight, 0 },
     { "SmallCaps", bSmallCaps, 0 },
     { "MoveReference", bMoveReference, 0 },
     { "PositionReference", bPositionReference, 0 },
@@ -8803,20 +8885,32 @@ static void docall(Context *c,char *name,Val *val) {
 	} else {
 	    if ( strchr(name,'/')==NULL && strchr(c->filename,'/')!=NULL ) {
 		char *pt;
-		sub.filename = galloc(strlen(c->filename)+strlen(name)+1);
+		sub.filename = galloc(strlen(c->filename)+strlen(name)+4);
 		strcpy(sub.filename,c->filename);
 		pt = strrchr(sub.filename,'/');
 		strcpy(pt+1,name);
 	    }
 	    sub.script = fopen(sub.filename,"r");
 	    if ( sub.script==NULL ) {
-		if ( sub.filename==name )
-		    ScriptError(&sub, "No built-in function or script-file");
-		else {
-		    char *filename = sub.filename;
-		    sub.filename = name;
-		    ScriptErrorString(&sub, "No built-in function or script-file", filename);
+		char *pt;
+		if ( sub.filename==name ) {
+		    sub.filename = galloc(strlen(name)+4);
+		    strcpy(sub.filename,name);
 		}
+		pt = sub.filename + strlen(sub.filename);
+		strcpy(pt, ".ff");
+		sub.script = fopen(sub.filename,"r");
+		if ( sub.script==NULL ) {
+		    strcpy(pt, ".pe");
+		    sub.script = fopen(sub.filename,"r");
+		}
+		if ( sub.script==NULL ) {
+		    *pt = '\0';
+		}
+	    }
+	    sub.script = fopen(sub.filename,"r");
+	    if ( sub.script==NULL ) {
+		ScriptErrorString(c, "No built-in function or script file", name);
 	    } else {
 		sub.lineno = 1;
 		while ( !sub.returned && !sub.broken && (tok = ff_NextToken(&sub))!=tt_eof ) {
@@ -9794,27 +9888,27 @@ void ff_statement(Context *c) {
 }
 
 static FILE *CopyNonSeekableFile(FILE *former) {
-    int ch = '\n';
+/* Copy input stream or Standard input into an internal tmpfile  */
+/* that can then be used for running FontForge or Python scripts */
+/* The tmpfile automatically closes/deletes when FontForge exits */
+    int ch;
     FILE *temp = tmpfile();
     int istty = isatty(fileno(former)) && former==stdin;
 
-    if ( temp==NULL )
-return( former );
-    if ( istty )
+    if ( temp==NULL ) return( former );
+
+    if ( istty ) {
 	printf( "Type in your script file. Processing will not begin until all the script\n" );
-	printf( " has been input (ie. until you have pressed ^D)\n" );
-    while ( 1 ) {
-	if ( ch=='\n' && istty )
-	    printf( "> " );
-	ch = getc(former);
-	if ( ch==EOF )
-    break;
-	putc(ch,temp);
+	printf( " has been input (ie. until you have pressed ^D)\n> " );
     }
-    if ( istty )
-	printf( "\n" );
+    while ( (ch=getc(former))>=0 ) {
+	putc(ch,temp);
+	if ( ch=='\n' && istty ) printf( "> " );
+    }
+    if ( istty ) printf( "\n" );
+
     rewind(temp);
-return( temp );
+    return( temp );
 }
 
 void ff_VerboseCheck(void) {

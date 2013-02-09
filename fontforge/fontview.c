@@ -27,6 +27,7 @@
 #include "fontforgeui.h"
 #include "groups.h"
 #include "psfont.h"
+#include "annotations.h"
 #include <gfile.h>
 #include <gio.h>
 #include <gresedit.h>
@@ -38,7 +39,7 @@
 #include <math.h>
 #include <unistd.h>
 
-int OpenCharsInNewWindow = 1;
+int OpenCharsInNewWindow = 0;
 char *RecentFiles[RECENT_MAX] = { NULL };
 int save_to_dir = 0;			/* use sfdir rather than sfd */
 unichar_t *script_menu_names[SCRIPT_MENU_MAX];
@@ -47,17 +48,9 @@ extern int onlycopydisplayed, copymetadata, copyttfinstr, add_char_to_name_list;
 int home_char='A';
 int compact_font_on_open=0;
 int navigation_mask = 0;		/* Initialized in startui.c */
+int prefs_ensure_correct_extension = 1;
 
-static char *special_fontnames[] = {
-	SERIF_UI_FAMILIES,
-	"script,formalscript,serif",
-	"fraktur,serif",
-	"doublestruck,serif",
-	SANS_UI_FAMILIES,
-	MONO_UI_FAMILIES,
-	NULL
-    };
-static char *standard_fontnames = "fontview," MONO_UI_FAMILIES;
+static char *fv_fontnames = "fontview," MONO_UI_FAMILIES;
 
 #define	FV_LAB_HEIGHT	15
 
@@ -566,6 +559,19 @@ static int SaveAs_FormatChange(GGadget *g, GEvent *e) {
 return( true );
 }
 
+
+static enum fchooserret _FVSaveAsFilterFunc(GGadget *g,struct gdirentry *ent, const unichar_t *dir)
+{
+    char* n = u_to_c(ent->name);
+    int ew = endswithi( n, "sfd" ) || endswithi( n, "sfdir" );
+    if( ew )
+	return fc_show;
+    if( ent->isdir )
+	return fc_show;
+    return fc_hide;
+}
+
+
 int _FVMenuSaveAs(FontView *fv) {
     char *temp;
     char *ret;
@@ -618,7 +624,13 @@ int _FVMenuSaveAs(FontView *fv) {
     gcd.data = &s2d;
     gcd.creator = GCheckBoxCreate;
 
-    ret = gwwv_save_filename_with_gadget(_("Save as..."),temp,NULL,&gcd);
+    GFileChooserInputFilenameFuncType FilenameFunc = GFileChooserDefInputFilenameFunc;
+    if( prefs_ensure_correct_extension ) {
+	FilenameFunc = GFileChooserSaveAsInputFilenameFunc;
+    }
+    ret = GWidgetSaveAsFileWithGadget8(_("Save as..."),temp,0,NULL,
+				       _FVSaveAsFilterFunc, FilenameFunc,
+				       &gcd );
     free(temp);
     if ( ret==NULL )
 return( 0 );
@@ -892,6 +904,7 @@ return;
 }
 
 static void _MenuExit(void *UNUSED(junk)) {
+
     FontView *fv, *next;
 
     LastFonts_Activate();
@@ -1193,6 +1206,7 @@ static void FVMenuCondense(GWindow gw, struct gmenuitem *UNUSED(mi), GEvent *UNU
 #define MID_48	2004
 #define MID_72	2014
 #define MID_96	2015
+#define MID_128	2018
 #define MID_AntiAlias	2005
 #define MID_Next	2006
 #define MID_Prev	2007
@@ -1304,6 +1318,7 @@ static void FVMenuCondense(GWindow gw, struct gmenuitem *UNUSED(mi), GEvent *UNU
 #define MID_Undo	2109
 #define MID_Redo	2110
 #define MID_CopyWidth	2111
+#define MID_UndoFontLevel	2112
 #define MID_AllFonts		2122
 #define MID_DisplayedFont	2123
 #define	MID_CharName		2124
@@ -1345,6 +1360,7 @@ static void FVMenuCondense(GWindow gw, struct gmenuitem *UNUSED(mi), GEvent *UNU
 #define MID_SaveNamelist	2841
 #define MID_RenameGlyphs	2842
 #define MID_NameGlyphs		2843
+#define MID_HideNoGlyphSlots	2844
 #define MID_CreateMM	2900
 #define MID_MMInfo	2901
 #define MID_MMValid	2902
@@ -1505,6 +1521,95 @@ static void FVMenuUndo(GWindow gw, struct gmenuitem *UNUSED(mi), GEvent *UNUSED(
 static void FVMenuRedo(GWindow gw, struct gmenuitem *UNUSED(mi), GEvent *UNUSED(e)) {
     FontView *fv = (FontView *) GDrawGetUserData(gw);
     FVRedo((FontViewBase *) fv);
+}
+
+#include <stddef.h>
+static int listLength( void* p, int nextoffset ) {
+    if( !p )
+        return 0;
+    int ret = 1;
+    p = *((void**)(p + nextoffset));
+    for( ; p; ret++ ) {
+        p = *((void**)(p + nextoffset));
+    }
+    return ret;
+}
+static int pstLength( struct generic_pst * pst ) {
+    int offset = offsetof( PST, next );
+    return listLength( pst, offset );
+}
+
+/**
+ * Remove undo from the font level undoes on splinefont 'sf' and
+ * completely free the given undo from memory.
+ */
+static void sfundoRemoveAndFree( SplineFont *sf, struct sfundoes *undo ) {
+
+    if( undo->u.lookupatomic.sfdchunk )
+	free( undo->u.lookupatomic.sfdchunk );
+    dlist_erase( (struct dlistnode **)&sf->undoes, (struct dlistnode *)undo );
+    free(undo);
+}
+
+static void FVMenuUndoFontLevel(GWindow gw,struct gmenuitem *mi,GEvent *e) {
+    FontView *fv = (FontView *) GDrawGetUserData(gw);
+    FontViewBase * fvb = (FontViewBase *) fv;
+    SplineFont *sf = fvb->sf;
+    char* sfdchunk = 0;
+    
+    // printf("we currently have %d splinefont level undoes\n", dlist_size((struct dlistnode **)&sf->undoes));
+    if( !sf->undoes )
+	return;
+    
+    struct sfundoes *undo = sf->undoes;
+    // printf("font level undo msg:%s\n", undo->msg );
+    switch(undo->type) {
+    case sfut_lookups_kerns:
+    case sfut_lookups:
+	sfdchunk = undo->u.lookupatomic.sfdchunk;
+	if( !sfdchunk ) {
+	    ff_post_error(_("Undo information incomplete"),_("There is a splinefont level undo, but it does not contain any information to perform the undo. This is an application error, please report what you last did to the lookup tables so the developers can try to reproduce the issue and fix it."));
+	    sfundoRemoveAndFree( sf, undo );
+	    return;
+	}
+	
+	// Roll it on back!
+	FILE* sfd = MakeTemporaryFile();
+	fwrite( sfdchunk, strlen(sfdchunk), 1, sfd );
+	fseek( sfd, 0, SEEK_SET );
+
+	while( 1 ) {
+	    char* name = SFDMoveToNextStartChar( sfd );
+	    if( !name )
+		break;
+
+	    int unienc = 0;
+	    SplineChar *sc;
+	    sc = SFGetChar( sf, unienc, name );
+	    if( !sc ) {
+		ff_post_error(_("Bad undo"),_("couldn't find the character %s"), name );
+		break;
+	    }
+	    if( sc ) {
+		// Free the stuff in sc->psts so we don't leak it.
+		if( undo->type == sfut_lookups ) {
+		    PSTFree(sc->possub);
+		    sc->possub = 0;
+		}
+		char tok[2000];
+		getname( sfd, tok );
+		SFDGetPSTs( sfd, sc, tok );
+		SFDGetKerns( sfd, sc, tok );
+	    }
+	    free(name);
+	}
+	
+	if( undo->type == sfut_lookups_kerns ) {
+	    SFDFixupRefs( sf );
+	}
+	break;
+    }
+    sfundoRemoveAndFree( sf, undo );
 }
 
 static void FVMenuCut(GWindow gw, struct gmenuitem *UNUSED(mi), GEvent *UNUSED(e)) {
@@ -2559,7 +2664,7 @@ static void FVMenuCanonicalContours(GWindow gw, struct gmenuitem *UNUSED(mi), GE
 }
 
 static void FVMenuAddExtrema(GWindow gw, struct gmenuitem *UNUSED(mi), GEvent *UNUSED(e)) {
-    FVAddExtrema( (FontViewBase *) GDrawGetUserData(gw) );
+    FVAddExtrema( (FontViewBase *) GDrawGetUserData(gw) , false);
 }
 
 static void FVMenuCorrectDir(GWindow gw, struct gmenuitem *UNUSED(mi), GEvent *UNUSED(e)) {
@@ -3116,6 +3221,8 @@ static void FVMenuSize(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e)) {
 	default_fv_font_size = dspsize = 72;
     else if ( mi->mid == MID_96 )
 	default_fv_font_size = dspsize = 96;
+    else if ( mi->mid == MID_128 )
+	default_fv_font_size = dspsize = 128;
     else if ( mi->mid == MID_FitToEm ) {
 	default_fv_bbsized = fv->bbsized = !fv->bbsized;
 	fv->b.sf->display_bbsized = fv->bbsized;
@@ -4041,6 +4148,9 @@ static void edlistcheck(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e)) {
 	    break;
 	    mi->ti.disabled = i==fv->b.map->enccount;
 	  break;
+	case MID_UndoFontLevel:
+	    mi->ti.disabled = dlist_isempty( (struct dlistnode **)&fv->b.sf->undoes );
+	    break;
 	}
     }
 }
@@ -4390,6 +4500,7 @@ static GMenuItem2 sllist[] = {
 static GMenuItem2 edlist[] = {
     { { (unichar_t *) N_("_Undo"), (GImage *) "editundo.png", COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 0, 0, 0, 0, 1, 1, 0, 'U' }, H_("Undo|Ctl+Z"), NULL, NULL, FVMenuUndo, MID_Undo },
     { { (unichar_t *) N_("_Redo"), (GImage *) "editredo.png", COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 0, 0, 0, 0, 1, 1, 0, 'R' }, H_("Redo|Ctl+Y"), NULL, NULL, FVMenuRedo, MID_Redo},
+    { { (unichar_t *) N_("Undo Fontlevel"), (GImage *) "editundo.png", COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 0, 0, 0, 0, 1, 1, 0, 'U' }, H_("Undo Fontlevel|No Shortcut"), NULL, NULL, FVMenuUndoFontLevel, MID_UndoFontLevel },
     { { NULL, NULL, COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 0, 0, 0, 1, 0, 0, 0, '\0' }, NULL, NULL, NULL, NULL, 0 }, /* line */
     { { (unichar_t *) N_("Cu_t"), (GImage *) "editcut.png", COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 0, 0, 0, 0, 1, 1, 0, 't' }, H_("Cut|Ctl+X"), NULL, NULL, FVMenuCut, MID_Cut },
     { { (unichar_t *) N_("_Copy"), (GImage *) "editcopy.png", COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 0, 0, 0, 0, 1, 1, 0, 'C' }, H_("Copy|Ctl+C"), NULL, NULL, FVMenuCopy, MID_Copy },
@@ -4562,7 +4673,6 @@ static GMenuItem2 dummyall[] = {
 /* Builds up a menu containing all the anchor classes */
 static void aplistbuild(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e)) {
     FontView *fv = (FontView *) GDrawGetUserData(gw);
-    extern void GMenuItemArrayFree(GMenuItem *mi);
 
     GMenuItemArrayFree(mi->sub);
     mi->sub = NULL;
@@ -4638,7 +4748,6 @@ static GMenuItem2 emptymenu[] = {
 
 static void FVEncodingMenuBuild(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e)) {
     FontView *fv = (FontView *) GDrawGetUserData(gw);
-    extern void GMenuItemArrayFree(GMenuItem *mi);
 
     if ( mi->sub!=NULL ) {
 	GMenuItemArrayFree(mi->sub);
@@ -4704,7 +4813,6 @@ return;
 
 static void FVForceEncodingMenuBuild(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e)) {
     FontView *fv = (FontView *) GDrawGetUserData(gw);
-    extern void GMenuItemArrayFree(GMenuItem *mi);
 
     if ( mi->sub!=NULL ) {
 	GMenuItemArrayFree(mi->sub);
@@ -4957,6 +5065,8 @@ static void enlistcheck(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e)) {
 	  case MID_Compact:
 	    mi->ti.checked = fv->b.normal!=NULL;
 	  break;
+	case MID_HideNoGlyphSlots:
+	    break;
 	  case MID_Reencode: case MID_ForceReencode:
 	    mi->ti.disabled = fv->b.cidmaster!=NULL;
 	  break;
@@ -4998,7 +5108,6 @@ static GMenuItem2 lylist[] = {
 static void lylistcheck(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e)) {
     FontView *fv = (FontView *) GDrawGetUserData(gw);
     SplineFont *sf = fv->b.sf;
-    extern void GMenuItemArrayFree(GMenuItem *mi);
     int ly;
     GMenuItem *sub;
 
@@ -5042,6 +5151,7 @@ static GMenuItem2 vwlist[] = {
     { { (unichar_t *) N_("_48 pixel outline"), NULL, COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 1, 0, 0, 0, 1, 1, 0, '4' }, H_("48 pixel outline|Ctl+4"), NULL, NULL, FVMenuSize, MID_48 },
     { { (unichar_t *) N_("_72 pixel outline"), NULL, COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 1, 0, 0, 0, 1, 1, 0, '4' }, H_("72 pixel outline|Ctl+7"), NULL, NULL, FVMenuSize, MID_72 },
     { { (unichar_t *) N_("_96 pixel outline"), NULL, COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 1, 0, 0, 0, 1, 1, 0, '4' }, H_("96 pixel outline|Ctl+9"), NULL, NULL, FVMenuSize, MID_96 },
+    { { (unichar_t *) N_("_128 pixel outline"), NULL, COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 1, 0, 0, 0, 1, 1, 0, '4' }, H_("128 pixel outline|Ctl+1"), NULL, NULL, FVMenuSize, MID_128 },
     { { (unichar_t *) N_("_Anti Alias"), NULL, COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 1, 0, 0, 0, 1, 1, 0, 'A' }, H_("Anti Alias|Ctl+5"), NULL, NULL, FVMenuSize, MID_AntiAlias },
     { { (unichar_t *) N_("_Fit to em"), NULL, COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 1, 0, 0, 0, 1, 1, 0, 'F' }, H_("Fit to em|Ctl+6"), NULL, NULL, FVMenuSize, MID_FitToEm },
     { { NULL, NULL, COLOR_DEFAULT, COLOR_DEFAULT, NULL, NULL, 0, 1, 0, 0, 0, 1, 0, 0, 0, '\0' }, NULL, NULL, NULL, NULL, 0 }, /* line */
@@ -5059,8 +5169,6 @@ static void vwlistcheck(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e)) {
     int i, base;
     BDFFont *bdf;
     char buffer[50];
-    extern void GMenuItemArrayFree(GMenuItem *mi);
-    extern GMenuItem *GMenuItem2ArrayCopy(GMenuItem2 *mi, uint16 *cnt);
     int pos;
     SplineFont *sf = fv->b.sf;
     SplineFont *master = sf->cidmaster ? sf->cidmaster : sf;
@@ -5161,6 +5269,10 @@ static void vwlistcheck(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e)) {
 	  break;
 	  case MID_96:
 	    mi->ti.checked = (fv->show!=NULL && fv->show==fv->filled && fv->show->pixelsize==96);
+	    mi->ti.disabled = sf->onlybitmaps && fv->show!=fv->filled;
+	  break;
+	  case MID_128:
+	    mi->ti.checked = (fv->show!=NULL && fv->show==fv->filled && fv->show->pixelsize==128);
 	    mi->ti.disabled = sf->onlybitmaps && fv->show!=fv->filled;
 	  break;
 	  case MID_AntiAlias:
@@ -5281,8 +5393,6 @@ static GMenuItem2 cdlist[] = {
 static void cdlistcheck(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e)) {
     FontView *fv = (FontView *) GDrawGetUserData(gw);
     int i, base, j;
-    extern void GMenuItemArrayFree(GMenuItem *mi);
-    extern GMenuItem *GMenuItem2ArrayCopy(GMenuItem2 *mi, uint16 *cnt);
     SplineFont *sub, *cidmaster = fv->b.cidmaster;
 
     for ( i=0; cdlist[i].mid!=MID_CIDFontInfo; ++i );
@@ -5345,8 +5455,6 @@ static GMenuItem2 mmlist[] = {
 static void mmlistcheck(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e)) {
     FontView *fv = (FontView *) GDrawGetUserData(gw);
     int i, base, j;
-    extern void GMenuItemArrayFree(GMenuItem *mi);
-    extern GMenuItem *GMenuItem2ArrayCopy(GMenuItem2 *mi, uint16 *cnt);
     MMSet *mm = fv->b.sf->mm;
     SplineFont *sub;
     GMenuItem2 *mml;
@@ -5627,314 +5735,25 @@ return( feat_sc );
 return( base_sc );
 }
 
-static GImage *GImageCropAndRotate(GImage *unrot) {
-    struct _GImage *unbase = unrot->u.image, *rbase;
-    int xmin = unbase->width, xmax = -1, ymin = unbase->height, ymax = -1;
-    int i,j, ii;
-    GImage *rot;
-
-    for ( i=0; i<unbase->height; ++i ) {
-	for ( j=0; j<unbase->width; ++j ) {
-	    if ( !(unbase->data[i*unbase->bytes_per_line+(j>>3)]&(0x80>>(j&7))) ) {
-		if ( j<xmin ) xmin = j;
-		if ( j>xmax ) xmax = j;
-		if ( i>ymax ) ymax = i;
-		if ( i<ymin ) ymin = i;
-	    }
-	}
-    }
-    if ( xmax==-1 )
-return( NULL );
-
-    rot = GImageCreate(it_mono,ymax-ymin+1,xmax-xmin+1);
-    if ( rot==NULL )
-return( NULL );
-    rbase = rot->u.image;
-    memset(rbase->data,-1,rbase->height*rbase->bytes_per_line);
-    for ( i=ymin; i<=ymax; ++i ) {
-	for ( j=xmin; j<=xmax; ++j ) {
-	    if ( !(unbase->data[i*unbase->bytes_per_line+(j>>3)]&(0x80>>(j&7)) )) {
-		ii = ymax-i;
-		rbase->data[(j-xmin)*rbase->bytes_per_line+(ii>>3)] &= ~(0x80>>(ii&7));
-	    }
-	}
-    }
-    rbase->trans = 1;
-return( rot );
-}
-
-static GImage *UniGetRotatedGlyph(FontView *fv, SplineChar *sc,int uni) {
-    SplineFont *sf = fv->b.sf;
-    int cid=-1;
-    static GWindow pixmap=NULL;
-    GRect r;
-    unichar_t buf[2];
-    GImage *unrot, *rot;
-    SplineFont *cm = sf->cidmaster;
-
-    if ( uni!=-1 )
-	/* Do nothing */;
-    else if ( sscanf(sc->name,"vertuni%x", (unsigned *) &uni)==1 )
-	/* All done */;
-    else if ( cm!=NULL &&
-	    ((cid=CIDFromName(sc->name,cm))!=-1 ||
-	     sscanf( sc->name, "cid-%d", &cid)==1 ||		/* Obsolete names */
-	     sscanf( sc->name, "vertcid_%d", &cid)==1 ||
-	     sscanf( sc->name, "cid_%d", &cid)==1 )) {
-	uni = CID2Uni(FindCidMap(cm->cidregistry,cm->ordering,cm->supplement,cm),
-		cid);
-    }
-    if ( uni&0x10000 ) uni -= 0x10000;		/* Bug in some old cidmap files */
-    if ( uni<0 || uni>0xffff )
-return( NULL );
-
-    if ( pixmap==NULL ) {
-	pixmap = GDrawCreateBitmap(NULL,2*fv->lab_height,2*fv->lab_height,NULL);
-	if ( pixmap==NULL )
-return( NULL );
-	GDrawSetFont(pixmap,((FontView *) (sf->fv))->fontset[0]);
-    }
-    r.x = r.y = 0;
-    r.width = r.height = 2*fv->lab_height;
-    GDrawFillRect(pixmap,&r,1);
-    buf[0] = uni; buf[1] = 0;
-    GDrawDrawBiText(pixmap,2,fv->lab_height,buf,1,NULL,0);
-    unrot = GDrawCopyScreenToImage(pixmap,&r);
-    if ( unrot==NULL )
-return( NULL );
-
-    rot = GImageCropAndRotate(unrot);
-    GImageDestroy(unrot);
-return( rot );
-}
-
-static void GlyphImageXor(GImage *image,int fgxor) {
-    struct _GImage *base = image->list_len==0?image->u.image:image->u.images[0];
-    int i,j;
-
-    if ( base->image_type==it_mono || base->image_type==it_index ) {
-	if ( base->clut!=NULL ) {
-	    for ( i=0; i<base->clut->clut_len; ++i )
-		base->clut->clut[i] ^= fgxor;
-	}
-    } else if ( base->image_type==it_true || base->image_type==it_rgba ) {
-	uint32 *ipt = (uint32 *) (base->data);
-	for ( i=0; i<base->height; ++i ) {
-	    for ( j=0; j<base->width; ++j )
-		ipt[j] ^= fgxor;
-	    ipt = (uint32 *) (((uint8 *) ipt) + base->bytes_per_line);
-	}
-    }
-}
-
-#if 0
-static int Use2ByteEnc(FontView *fv,SplineChar *sc, unichar_t *buf,FontMods *mods) {
-    int ch1 = sc->enc>>8, ch2 = sc->enc&0xff, newch;
-    Encoding *enc = fv->b.map->enc;
-    unsigned short *subtable;
-
- retry:
-    switch ( enc ) {
-      case em_big5: case em_big5hkscs:
-	if ( !GDrawFontHasCharset(fv->fontset[0],em_big5))
-return( false);
-	if ( ch1<0xa1 || ch1>0xf9 || ch2<0x40 || ch2>0xfe || sc->enc> 0xf9fe )
-return( false );
-	mods->has_charset = true; mods->charset = em_big5;
-	buf[0] = sc->enc;
-	buf[1] = 0;
-return( true );
-      break;
-      case em_sjis:
-	if ( !GDrawFontHasCharset(fv->fontset[0],em_jis208))
-return( false);
-	if ( ch1>=129 && ch1<=159 )
-	    ch1-=112;
-	else if ( ch1>=0xe0 && ch1<=0xef )
-	    ch1-=176;
-	else
-return( false );
-	ch1<<=1;
-	if ( ch2 == 127 )
-return( false );
-	else if ( ch2>=159 )
-	    ch2-=126;
-	else if ( ch2>127 ) {
-	    --ch1;
-	    ch2 -= 32;
-	} else {
-	    -- ch1;
-	    ch2 -= 31;
-	}
-	mods->has_charset = true; mods->charset = em_jis208;
-	buf[0] = (ch1<<8) | ch2;
-	buf[1] = 0;
-return( true );
-      break;
-      case em_wansung:
-	if ( !GDrawFontHasCharset(fv->fontset[0],em_ksc5601))
-return( false);
-	if ( ch1<0xa1 || ch1>0xfd || ch2<0xa1 || ch2>0xfe || sc->enc > 0xfdfe )
-return( false );
-	mods->has_charset = true; mods->charset = em_ksc5601;
-	buf[0] = sc->enc-0x8080;
-	buf[1] = 0;
-return( true );
-      break;
-      case em_jisgb:
-	if ( !GDrawFontHasCharset(fv->fontset[0],em_gb2312))
-return( false);
-	if ( ch1<0xa1 || ch1>0xfd || ch2<0xa1 || ch2>0xfe || sc->enc > 0xfdfe )
-return( false );
-	mods->has_charset = true; mods->charset = em_gb2312;
-	buf[0] = sc->enc-0x8080;
-	buf[1] = 0;
-return( true );
-      break;
-      case em_ksc5601: case em_jis208: case em_jis212: case em_gb2312:
-	if ( !GDrawFontHasCharset(fv->fontset[0],enc))
-return( false);
-	if ( ch1<0x21 || ch1>0x7e || ch2<0x21 || ch2>0x7e )
-return( false );
-	mods->has_charset = true; mods->charset = enc;
-	buf[0] = (ch1<<8)|ch2;
-	buf[1] = 0;
-return( true );
-      break;
-      default:
-    /* If possible, look at the unicode font using the appropriate glyphs */
-    /*  for the CJ language for which the font was designed */
-	ch1 = sc->unicodeenc>>8, ch2 = sc->unicodeenc&0xff;
-	switch ( fv->b.sf->uni_interp ) {
-	  case ui_japanese:
-	    if ( ch1>=jis_from_unicode.first && ch1<=jis_from_unicode.last &&
-		    (subtable = jis_from_unicode.table[ch1-jis_from_unicode.first])!=NULL &&
-		    (newch = subtable[ch2])!=0 ) {
-		if ( newch&0x8000 ) {
-		    if ( GDrawFontHasCharset(fv->fontset[0],em_jis212)) {
-			enc = em_jis212;
-			newch &= ~0x8000;
-			ch1 = newch>>8; ch2 = newch&0xff;
-		    } else
-return( false );
-		} else {
-		    if ( GDrawFontHasCharset(fv->fontset[0],em_jis208)) {
-			enc = em_jis208;
-			ch1 = newch>>8; ch2 = newch&0xff;
-		    } else
-return( false );
-		}
-	    } else
-return( false );
-	  break;
-	  case ui_korean:
-	    /* Don't know what to do about korean hanga chars */
-	    /* No ambiguity for hangul */
-return( false );
-	  break;
-	  case ui_trad_chinese:
-	    if ( ch1>=big5hkscs_from_unicode.first && ch1<=big5hkscs_from_unicode.last &&
-		    (subtable = big5hkscs_from_unicode.table[ch1-big5hkscs_from_unicode.first])!=NULL &&
-		    (newch = subtable[ch2])!=0 &&
-		    GDrawFontHasCharset(fv->fontset[0],em_big5)) {
-		enc = em_big5hkscs;
-		ch1 = newch>>8; ch2 = newch&0xff;
-	    } else
-return( false );
-	  break;
-	  case ui_simp_chinese:
-	    if ( ch1>=gb2312_from_unicode.first && ch1<=gb2312_from_unicode.last &&
-		    (subtable = gb2312_from_unicode.table[ch1-gb2312_from_unicode.first])!=NULL &&
-		    (newch = subtable[ch2])!=0 &&
-		    GDrawFontHasCharset(fv->fontset[0],em_gb2312)) {
-		enc = em_gb2312;
-		ch1 = newch>>8; ch2 = newch&0xff;
-	    } else
-return( false );
-	  break;
-	  default:
-return( false );
-	}
- goto retry;
-    }
-}
-#endif
-
-/* Mathmatical Alphanumeric Symbols in the 1d400-1d7ff range are styled */
-/*  variants on latin, greek, and digits				*/
-#define _uni_bold	0x1
+/* we style some glyph names differently, see FVExpose() */
 #define _uni_italic	0x2
-#define _uni_script	(1<<2)
-#define _uni_fraktur	(2<<2)
-#define _uni_doublestruck	(3<<2)
-#define _uni_sans	(4<<2)
-#define _uni_mono	(5<<2)
-#define _uni_fontmax	(6<<2)
-#define _uni_latin	0
-#define _uni_greek	1
-#define _uni_digit	2
-
-static int latinmap[] = {
-    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
-    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
-    'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-    '\0'
-};
-static int greekmap[] = {
-    0x391, 0x392, 0x393, 0x394, 0x395, 0x396, 0x397, 0x398, 0x399, 0x39a,
-    0x39b, 0x39c, 0x39d, 0x39e, 0x39f, 0x3a0, 0x3a1, 0x3f4, 0x3a3, 0x3a4,
-    0x3a5, 0x3a6, 0x3a7, 0x3a8, 0x3a9, 0x2207,
-    0x3b1, 0x3b2, 0x3b3, 0x3b4, 0x3b5, 0x3b6, 0x3b7, 0x3b8, 0x3b9, 0x3ba,
-    0x3bb, 0x3bc, 0x3bd, 0x3be, 0x3bf, 0x3c0, 0x3c1, 0x3c2, 0x3c3, 0x3c4,
-    0x3c5, 0x3c6, 0x3c7, 0x3c8, 0x3c9,
-    0x2202, 0x3f5, 0x3d1, 0x3f0, 0x3d5, 0x3f1, 0x3d6,
-    0
-};
-static int digitmap[] = { '0', '1', '2', '3', '4', '5', '6','7','8','9', '\0' };
-static int *maps[] = { latinmap, greekmap, digitmap };
-
-static struct { int start, last; int styles; int charset; } mathmap[] = {
-    { 0x1d400, 0x1d433, _uni_bold,		_uni_latin },
-    { 0x1d434, 0x1d467, _uni_italic,		_uni_latin },
-    { 0x1d468, 0x1d49b, _uni_bold|_uni_italic,	_uni_latin },
-    { 0x1d49c, 0x1d4cf, _uni_script,		_uni_latin },
-    { 0x1d4d0, 0x1d503, _uni_script|_uni_bold,	_uni_latin },
-    { 0x1d504, 0x1d537, _uni_fraktur,		_uni_latin },
-    { 0x1d538, 0x1d56b, _uni_doublestruck,	_uni_latin },
-    { 0x1d56c, 0x1d59f, _uni_fraktur|_uni_bold,	_uni_latin },
-    { 0x1d5a0, 0x1d5d3, _uni_sans,		_uni_latin },
-    { 0x1d5d4, 0x1d607, _uni_sans|_uni_bold,	_uni_latin },
-    { 0x1d608, 0x1d63b, _uni_sans|_uni_italic,	_uni_latin },
-    { 0x1d63c, 0x1d66f, _uni_sans|_uni_bold|_uni_italic,	_uni_latin },
-    { 0x1d670, 0x1d6a3, _uni_mono,		_uni_latin },
-    { 0x1d6a8, 0x1d6e1, _uni_bold,		_uni_greek },
-    { 0x1d6e2, 0x1d71b, _uni_italic,		_uni_greek },
-    { 0x1d71c, 0x1d755, _uni_bold|_uni_italic,	_uni_greek },
-    { 0x1d756, 0x1d78f, _uni_sans|_uni_bold,	_uni_greek },
-    { 0x1d790, 0x1d7c9, _uni_sans|_uni_bold|_uni_italic,	_uni_greek },
-    { 0x1d7ce, 0x1d7d7, _uni_bold,		_uni_digit },
-    { 0x1d7d8, 0x1d7e1, _uni_doublestruck,	_uni_digit },
-    { 0x1d7e2, 0x1d7eb, _uni_sans,		_uni_digit },
-    { 0x1d7ec, 0x1d7f5, _uni_sans|_uni_bold,	_uni_digit },
-    { 0x1d7f6, 0x1d7ff, _uni_mono,		_uni_digit },
-    { 0, 0, 0, 0 }
-};
+#define _uni_vertical	(1<<2)
+#define _uni_fontmax	(2<<2)
 
 static GFont *FVCheckFont(FontView *fv,int type) {
     FontRequest rq;
-    int family = type>>2;
-    char *fontnames;
 
     if ( fv->fontset[type]==NULL ) {
-	fontnames = special_fontnames[family];
-
 	memset(&rq,0,sizeof(rq));
-	rq.utf8_family_name = fontnames;
+	rq.utf8_family_name = fv_fontnames;
 	rq.point_size = fv_fontsize;
-	rq.weight = (type&_uni_bold) ? 700:400;
-	rq.style = (type&_uni_italic) ? fs_italic : 0;
-	fv->fontset[type] = GDrawInstanciateFont(GDrawGetDisplayOfWindow(fv->v),&rq);
+	rq.weight = 400;
+	rq.style = 0;
+	if (type&_uni_italic)
+	    rq.style |= fs_italic;
+	if (type&_uni_vertical)
+	    rq.style |= fs_vertical;
+	fv->fontset[type] = GDrawInstanciateFont(fv->v,&rq);
     }
 return( fv->fontset[type] );
 }
@@ -5958,7 +5777,7 @@ static void do_Adobe_Pua(unichar_t *buf,int sob,int uni) {
 }
 
 static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
-    int i, j, width, gid;
+    int i, j, y, width, gid;
     int changed;
     GRect old, old2, r;
     GClut clut;
@@ -5966,7 +5785,6 @@ static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
     GImage gi;
     SplineChar dummy;
     int styles, laststyles=0;
-    GImage *rotated=NULL;
     Color bg, def_fg;
     int fgxor;
 
@@ -6009,7 +5827,6 @@ static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
 	    char utf8_buf[8];
 	    int use_utf8 = false;
 	    Color fg;
-	    FontMods *mods=NULL;
 	    extern const int amspua[];
 	    int uni;
 	    struct cidmap *cidmap = NULL;
@@ -6034,7 +5851,6 @@ static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
 	    switch ( fv->glyphlabel ) {
 	      case gl_name:
 		uc_strncpy(buf,sc->name,sizeof(buf)/sizeof(buf[0]));
-		styles = _uni_sans;
 	      break;
 	      case gl_unicode:
 		if ( sc->unicodeenc!=-1 ) {
@@ -6042,7 +5858,6 @@ static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
 		    uc_strcpy(buf,cbuf);
 		} else
 		    uc_strcpy(buf,"?");
-		styles = _uni_sans;
 	      break;
 	      case gl_encoding:
 		if ( fv->b.map->enc->only_1byte ||
@@ -6051,7 +5866,6 @@ static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
 		else
 		    sprintf(cbuf,"%04x",index);
 		uc_strcpy(buf,cbuf);
-		styles = _uni_sans;
 	      break;
 	      case gl_glyph:
 		if ( uni==0xad )
@@ -6060,17 +5874,6 @@ static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
 			adobes_pua_alts[uni-0xf600]!=0 ) {
 		    use_utf8 = false;
 		    do_Adobe_Pua(buf,sizeof(buf),uni);
-		} else if ( uni>=0x1d400 && uni<=0x1d7ff &&
-			!(GDrawHasCairo(fv->v)&gc_pango)) {
-		    int i;
-		    /* Pango knows how to find the right letters (or we hope it does) */
-		    for ( i=0; mathmap[i].start!=0; ++i ) {
-			if ( uni<=mathmap[i].last ) {
-			    buf[0] = maps[mathmap[i].charset][uni-mathmap[i].start];
-			    styles = mathmap[i].styles;
-		    break;
-			}
-		    }
 		} else if ( uni>=0xe0020 && uni<=0xe007e ) {
 		    buf[0] = uni-0xe0000;	/* A map of Ascii for language names */
 #if HANYANG
@@ -6116,11 +5919,11 @@ static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
 			    *pt = '.';
 			}
 			if ( strstr(pt,".vert")!=NULL )
-			    rotated = UniGetRotatedGlyph(fv,sc,buf[0]!='?'?buf[0]:-1);
+			    styles = _uni_vertical;
 			if ( buf[0]!='?' ) {
 			    fg = def_fg;
 			    if ( strstr(pt,".italic")!=NULL )
-				styles = _uni_italic|_uni_mono;
+				styles = _uni_italic;
 			}
 		    } else if ( strncmp(sc->name,"hwuni",5)==0 ) {
 			int uni=-1;
@@ -6129,11 +5932,11 @@ static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
 		    } else if ( strncmp(sc->name,"italicuni",9)==0 ) {
 			int uni=-1;
 			sscanf(sc->name,"italicuni%x", (unsigned *) &uni );
-			if ( uni!=-1 ) { buf[0] = uni; styles=_uni_italic|_uni_mono; }
+			if ( uni!=-1 ) { buf[0] = uni; styles=_uni_italic; }
 			fg = def_fg;
 		    } else if ( strncmp(sc->name,"vertcid_",8)==0 ||
 			    strncmp(sc->name,"vertuni",7)==0 ) {
-			rotated = UniGetRotatedGlyph(fv,sc,-1);
+			styles = _uni_vertical;
 		    }
 		}
 	      break;
@@ -6171,15 +5974,7 @@ static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
 		GDrawDrawLine(pixmap,r.x+r.width-2,r.y,r.x+r.width-2,r.y+r.height-1,hintcol);
 		GDrawDrawLine(pixmap,r.x+r.width-3,r.y,r.x+r.width-3,r.y+r.height-1,hintcol);
 	    }
-	    if ( rotated!=NULL ) {
-		GDrawPushClip(pixmap,&r,&old2);
-		if ( fgxor!=0 )
-		    GlyphImageXor(rotated,fgxor);
-		GDrawDrawImage(pixmap,rotated,NULL,j*fv->cbw+2,i*fv->cbh+2);
-		GDrawPopClip(pixmap,&old2);
-		GImageDestroy(rotated);
-		rotated = NULL;
-	    } else if ( use_utf8 && sc->unicodeenc!=-1 &&
+	    if ( use_utf8 && sc->unicodeenc!=-1 &&
 		/* Pango complains if we try to draw non characters */
 		/* These two are guaranteed "NOT A UNICODE CHARACTER" in all planes */
 		    ((sc->unicodeenc&0xffff)==0xfffe || (sc->unicodeenc&0xffff)==0xffff ||
@@ -6193,33 +5988,43 @@ static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
 	    } else if ( use_utf8 ) {
 		GTextBounds size;
 		if ( styles!=laststyles ) GDrawSetFont(pixmap,FVCheckFont(fv,styles));
-		width = GDrawGetBiText8Bounds(pixmap,utf8_buf,-1,mods,&size);
+		width = GDrawGetText8Bounds(pixmap,utf8_buf,-1,&size);
 		if ( size.lbearing==0 && size.rbearing==0 ) {
 		    utf8_buf[0] = 0xe0 | (0xfffd>>12);
 		    utf8_buf[1] = 0x80 | ((0xfffd>>6)&0x3f);
 		    utf8_buf[2] = 0x80 | (0xfffd&0x3f);
 		    utf8_buf[3] = 0;
-		    width = GDrawGetBiText8Bounds(pixmap,utf8_buf,-1,mods,&size);
+		    width = GDrawGetText8Bounds(pixmap,utf8_buf,-1,&size);
 		}
 		width = size.rbearing - size.lbearing+1;
 		if ( width >= fv->cbw-1 ) {
 		    GDrawPushClip(pixmap,&r,&old2);
 		    width = fv->cbw-1;
 		}
-		if ( sc->unicodeenc<0x80 || sc->unicodeenc>=0xa0 )
-		    GDrawDrawBiText8(pixmap,j*fv->cbw+(fv->cbw-1-width)/2-size.lbearing,i*fv->cbh+fv->lab_as+1,utf8_buf,-1,mods,fg^fgxor);
+		if ( sc->unicodeenc<0x80 || sc->unicodeenc>=0xa0 ) {
+		    y = i*fv->cbh+fv->lab_as+1;
+		    /* move rotated glyph up a bit to center it */
+		    if (styles&_uni_vertical)
+			y -= fv->lab_as/2;
+		    GDrawDrawText8(pixmap,j*fv->cbw+(fv->cbw-1-width)/2-size.lbearing,y,utf8_buf,-1,fg^fgxor);
+		}
 		if ( width >= fv->cbw-1 )
 		    GDrawPopClip(pixmap,&old2);
 		laststyles = styles;
 	    } else {
 		if ( styles!=laststyles ) GDrawSetFont(pixmap,FVCheckFont(fv,styles));
-		width = GDrawGetTextWidth(pixmap,buf,-1,mods);
+		width = GDrawGetTextWidth(pixmap,buf,-1);
 		if ( width >= fv->cbw-1 ) {
 		    GDrawPushClip(pixmap,&r,&old2);
 		    width = fv->cbw-1;
 		}
-		if ( sc->unicodeenc<0x80 || sc->unicodeenc>=0xa0 )
-		    GDrawDrawBiText(pixmap,j*fv->cbw+(fv->cbw-1-width)/2,i*fv->cbh+fv->lab_as+1,buf,-1,mods,fg^fgxor);
+		if ( sc->unicodeenc<0x80 || sc->unicodeenc>=0xa0 ) {
+		    y = i*fv->cbh+fv->lab_as+1;
+		    /* move rotated glyph up a bit to center it */
+		    if (styles&_uni_vertical)
+			y -= fv->lab_as/2;
+		    GDrawDrawText(pixmap,j*fv->cbw+(fv->cbw-1-width)/2,y,buf,-1,fg^fgxor);
+		}
 		if ( width >= fv->cbw-1 )
 		    GDrawPopClip(pixmap,&old2);
 		laststyles = styles;
@@ -6251,6 +6056,7 @@ void FVDrawInfo(FontView *fv,GWindow pixmap, GEvent *event) {
     int uni;
     Color fg = fvglyphinfocol;
     int ulen, tlen;
+    const char *uniname;
 
     if ( event->u.expose.rect.y+event->u.expose.rect.height<=fv->mbh )
 return;
@@ -6312,21 +6118,23 @@ return;
 	}
 	fg = 0x707070;
     }
-    if ( uni!=-1 && uni<0x110000 && _UnicodeNameAnnot!=NULL &&
-	    _UnicodeNameAnnot[uni>>16][(uni>>8)&0xff][uni&0xff].name!=NULL ) {
-	utf82u_strncpy(ubuffer+u_strlen(ubuffer), _UnicodeNameAnnot[uni>>16][(uni>>8)&0xff][uni&0xff].name, 80);
-    } else if ( uni>=0xAC00 && uni<=0xD7A3 ) {
-	sprintf( buffer, "Hangul Syllable %s%s%s",
-		chosung[(uni-0xAC00)/(21*28)],
-		jungsung[(uni-0xAC00)/28%21],
-		jongsung[(uni-0xAC00)%28] );
-	uc_strncat(ubuffer,buffer,80);
-    } else if ( uni!=-1 ) {
-	uc_strncat(ubuffer, UnicodeRange(uni),80);
+    if (uni != -1) {        
+        uniname = uninm_name(names_db, (unsigned int) uni);
+        if (uniname != NULL) {
+            utf82u_strncpy(ubuffer+u_strlen(ubuffer), uniname, 80);
+        } else if ( uni>=0xAC00 && uni<=0xD7A3 ) {
+            sprintf( buffer, "Hangul Syllable %s%s%s",
+                     chosung[(uni-0xAC00)/(21*28)],
+                     jungsung[(uni-0xAC00)/28%21],
+                     jongsung[(uni-0xAC00)%28] );
+            uc_strncat(ubuffer,buffer,80);
+        } else {
+            uc_strncat(ubuffer, UnicodeRange(uni),80);
+        }
     }
 
-    tlen = GDrawDrawBiText(pixmap,10,fv->mbh+fv->lab_as,ubuffer,ulen,NULL,fvglyphinfocol);
-    GDrawDrawBiText(pixmap,10+tlen,fv->mbh+fv->lab_as,ubuffer+ulen,-1,NULL,fg);
+    tlen = GDrawDrawText(pixmap,10,fv->mbh+fv->lab_as,ubuffer,ulen,fvglyphinfocol);
+    GDrawDrawText(pixmap,10+tlen,fv->mbh+fv->lab_as,ubuffer+ulen,-1,fg);
     GDrawPopClip(pixmap,&old);
 }
 
@@ -6530,12 +6338,7 @@ static void utf82u_annot_strncat(unichar_t *to, const char *from, int len) {
 
     to += u_strlen(to);
     while ( (ch = utf8_ildb(&from)) != '\0' && --len>=0 ) {
-	if ( from[-2]=='\t' ) {
-	    if ( ch=='*' ) ch = 0x2022;
-	    else if ( ch=='x' ) ch = 0x2192;
-	    else if ( ch==':' ) ch = 0x224d;
-	    else if ( ch=='#' ) ch = 0x2245;
-	} else if ( ch=='\t' ) {
+	if ( ch=='\t' ) {
 	    *(to++) = ' ';
 	    ch = ' ';
 	}
@@ -6550,6 +6353,8 @@ void SCPreparePopup(GWindow gw,SplineChar *sc,struct remap *remap, int localenc,
     char cspace[162];
     int upos=-1;
     int done = false;
+    const char *uniname;
+    const char *uniannot;
 
     /* If a glyph is multiply mapped then the inbuild unicode enc may not be */
     /*  the actual one used to access the glyph */
@@ -6557,7 +6362,7 @@ void SCPreparePopup(GWindow gw,SplineChar *sc,struct remap *remap, int localenc,
 	while ( remap->infont!=-1 ) {
 	    if ( localenc>=remap->infont && localenc<=remap->infont+(remap->lastenc-remap->firstenc) ) {
 		localenc += remap->firstenc-remap->infont;
-	break;
+                break;
 	    }
 	    ++remap;
 	}
@@ -6586,49 +6391,50 @@ void SCPreparePopup(GWindow gw,SplineChar *sc,struct remap *remap, int localenc,
 	uc_strcpy(space,cspace);
 	done = true;
     }
-    if ( done )
-	/* Do Nothing */;
-    else if ( upos<0x110000 && _UnicodeNameAnnot!=NULL &&
-	    _UnicodeNameAnnot[upos>>16][(upos>>8)&0xff][upos&0xff].name!=NULL ) {
+
+    if ( !done ) {
+        uniname = uninm_name(names_db, upos);
+        if (uniname != NULL) {
 #if defined( _NO_SNPRINTF )
-	sprintf( cspace, "%u 0x%x U+%04x \"%.25s\" %.100s", localenc, localenc, upos, sc->name==NULL?"":sc->name,
-		_UnicodeNameAnnot[upos>>16][(upos>>8)&0xff][upos&0xff].name);
+            sprintf( cspace, "%u 0x%x U+%04x \"%.25s\" %.100s", localenc, localenc, upos, sc->name==NULL?"":sc->name,
+                     uniname);
 #else
-	snprintf( cspace, sizeof(cspace), "%u 0x%x U+%04x \"%.25s\" %.100s", localenc, localenc, upos, sc->name==NULL?"":sc->name,
-		_UnicodeNameAnnot[upos>>16][(upos>>8)&0xff][upos&0xff].name);
+            snprintf( cspace, sizeof(cspace), "%u 0x%x U+%04x \"%.25s\" %.100s", localenc, localenc, upos, sc->name==NULL?"":sc->name,
+                      uniname);
 #endif
-	utf82u_strcpy(space,cspace);
-    } else if ( upos>=0xAC00 && upos<=0xD7A3 ) {
+            utf82u_strcpy(space,cspace);
+        } else if ( upos>=0xAC00 && upos<=0xD7A3 ) {
 #if defined( _NO_SNPRINTF )
-	sprintf( cspace, "%u 0x%x U+%04x \"%.25s\" Hangul Syllable %s%s%s",
-		localenc, localenc, upos, sc->name==NULL?"":sc->name,
-		chosung[(upos-0xAC00)/(21*28)],
-		jungsung[(upos-0xAC00)/28%21],
-		jongsung[(upos-0xAC00)%28] );
+            sprintf( cspace, "%u 0x%x U+%04x \"%.25s\" Hangul Syllable %s%s%s",
+                     localenc, localenc, upos, sc->name==NULL?"":sc->name,
+                     chosung[(upos-0xAC00)/(21*28)],
+                     jungsung[(upos-0xAC00)/28%21],
+                     jongsung[(upos-0xAC00)%28] );
 #else
-	snprintf( cspace, sizeof(cspace), "%u 0x%x U+%04x \"%.25s\" Hangul Syllable %s%s%s",
-		localenc, localenc, upos, sc->name==NULL?"":sc->name,
-		chosung[(upos-0xAC00)/(21*28)],
-		jungsung[(upos-0xAC00)/28%21],
-		jongsung[(upos-0xAC00)%28] );
+            snprintf( cspace, sizeof(cspace), "%u 0x%x U+%04x \"%.25s\" Hangul Syllable %s%s%s",
+                      localenc, localenc, upos, sc->name==NULL?"":sc->name,
+                      chosung[(upos-0xAC00)/(21*28)],
+                      jungsung[(upos-0xAC00)/28%21],
+                      jongsung[(upos-0xAC00)%28] );
 #endif
-	utf82u_strcpy(space,cspace);
-    } else {
+            utf82u_strcpy(space,cspace);
+        } else {
 #if defined( _NO_SNPRINTF )
-	sprintf( cspace, "%u 0x%x U+%04x \"%.25s\" %.50s", localenc, localenc, upos, sc->name==NULL?"":sc->name,
-	    	UnicodeRange(upos));
+            sprintf( cspace, "%u 0x%x U+%04x \"%.25s\" %.50s", localenc, localenc, upos, sc->name==NULL?"":sc->name,
+                     UnicodeRange(upos));
 #else
-	snprintf( cspace, sizeof(cspace), "%u 0x%x U+%04x \"%.25s\" %.50s", localenc, localenc, upos, sc->name==NULL?"":sc->name,
-	    	UnicodeRange(upos));
+            snprintf( cspace, sizeof(cspace), "%u 0x%x U+%04x \"%.25s\" %.50s", localenc, localenc, upos, sc->name==NULL?"":sc->name,
+                      UnicodeRange(upos));
 #endif
-	utf82u_strcpy(space,cspace);
+            utf82u_strcpy(space,cspace);
+        }
     }
-    if ( upos>=0 && upos<0x110000 && _UnicodeNameAnnot!=NULL &&
-	    _UnicodeNameAnnot[upos>>16][(upos>>8)&0xff][upos&0xff].annot!=NULL ) {
+    uniannot = uninm_annotation(names_db, upos);
+    if (uniannot != NULL) {
 	int left = sizeof(space)/sizeof(space[0]) - u_strlen(space)-1;
 	if ( left>4 ) {
 	    uc_strcat(space,"\n");
-	    utf82u_annot_strncat(space,_UnicodeNameAnnot[upos>>16][(upos>>8)&0xff][upos&0xff].annot,left-2);
+            utf82u_annot_strncat(space, uniannot, left-2);
 	}
     }
     if ( sc->comment!=NULL ) {
@@ -7264,13 +7070,7 @@ static struct resed fontview_re[] = {
     {N_("Changed Color"), "ChangedColor", rt_color, &fvchangedcol, N_("Color used to mark a changed glyph"), NULL, { 0 }, 0, 0 },
     {N_("Hinting Needed Color"), "HintingNeededColor", rt_color, &fvhintingneededcol, N_("Color used to mark glyphs that need hinting"), NULL, { 0 }, 0, 0 },
     {N_("Font Size"), "FontSize", rt_int, &fv_fontsize, N_("Size (in points) of the font used to display information and glyph labels in the fontview"), NULL, { 0 }, 0, 0 },
-    {N_("Font Family"), "FontFamily", rt_stringlong, &standard_fontnames, N_("A comma separated list of font family names used to display small example images of glyphs over the user designed glyphs"), NULL, { 0 }, 0, 0 },
-    {N_("Serif Family"), "SerifFamily", rt_stringlong, &special_fontnames[0], N_("A comma separated list of font family names used to display small example images of glyphs over the user designed glyphs\nfor characters in the unicode math region which are specified to be in a serif font"), NULL, { 0 }, 0, 0 },
-    {N_("Script Family"), "ScriptFamily", rt_stringlong, &special_fontnames[1], N_("A comma separated list of font family names used to display small example images of glyphs over the user designed glyphs\nfor characters in the unicode math region which are specified to be in a script font"), NULL, { 0 }, 0, 0 },
-    {N_("Fraktur Family"), "FrakturFamily", rt_stringlong, &special_fontnames[2], N_("A comma separated list of font family names used to display small example images of glyphs over the user designed glyphs\nfor characters in the unicode math region which are specified to be in a fractur font"), NULL, { 0 }, 0, 0 },
-    {N_("Double Struck Family"), "DoubleStruckFamily", rt_stringlong, &special_fontnames[3], N_("A comma separated list of font family names used to display small example images of glyphs over the user designed glyphs\nfor characters in the unicode math region which are specified to be in a double struck font"), NULL, { 0 }, 0, 0 },
-    {N_("Sans-Serif Family"), "SansFamily", rt_stringlong, &special_fontnames[4], N_("A comma separated list of font family names used to display small example images of glyphs over the user designed glyphs\nfor characters in the unicode math region which are specified to be in a sans-serif font"), NULL, { 0 }, 0, 0 },
-    {N_("Monospace Family"), "MonoFamily", rt_stringlong, &special_fontnames[5], N_("A comma separated list of font family names used to display small example images of glyphs over the user designed glyphs\nfor characters in the unicode math region which are specified to be in a monospace font"), NULL, { 0 }, 0, 0 },
+    {N_("Font Family"), "FontFamily", rt_stringlong, &fv_fontnames, N_("A comma separated list of font family names used to display small example images of glyphs over the user designed glyphs"), NULL, { 0 }, 0, 0 },
     RESED_EMPTY
 };
 
@@ -7311,12 +7111,12 @@ static void FVCreateInnards(FontView *fv,GRect *pos) {
 
     fv->fontset = gcalloc(_uni_fontmax,sizeof(GFont *));
     memset(&rq,0,sizeof(rq));
-    rq.utf8_family_name = standard_fontnames;
+    rq.utf8_family_name = fv_fontnames;
     rq.point_size = fv_fontsize;
     rq.weight = 400;
-    fv->fontset[0] = GDrawInstanciateFont(GDrawGetDisplayOfWindow(gw),&rq);
+    fv->fontset[0] = GDrawInstanciateFont(gw,&rq);
     GDrawSetFont(fv->v,fv->fontset[0]);
-    GDrawFontMetrics(fv->fontset[0],&as,&ds,&ld);
+    GDrawWindowFontMetrics(fv->v,fv->fontset[0],&as,&ds,&ld);
     fv->lab_as = as;
     fv->showhmetrics = default_fv_showhmetrics;
     fv->showvmetrics = default_fv_showvmetrics && sf->hasvmetrics;
@@ -7372,6 +7172,7 @@ static FontView *FontView_Create(SplineFont *sf, int hide) {
 	nexty = 0;
     fv->gw = gw = GDrawCreateTopWindow(NULL,&pos,fv_e_h,fv,&wattrs);
     FontViewSetTitle(fv);
+    GDrawSetWindowTypeName(fv->gw, "FontView");
 
     if ( !fv_fs_init ) {
 	GResEditFind( fontview_re, "FontView.");
@@ -8012,3 +7813,8 @@ char *GlyphSetFromSelection(SplineFont *sf,int def_layer,char *current) {
     GDrawDestroyWindow(gs.gw);
 return( ret );
 }
+
+/* local variables: */
+/* tab-width: 8     */
+/* end:             */
+

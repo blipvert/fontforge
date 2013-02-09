@@ -24,11 +24,16 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#define _DEFINE_SEARCHVIEW_
 #include "fontforgevw.h"
 #include <math.h>
 #include <ustring.h>
 #include <utype.h>
+
+#if defined(__MINGW32__)
+// no backtrace on windows yet
+#else
+    #include <execinfo.h>
+#endif
 
 extern char *coord_sep;
 
@@ -36,6 +41,37 @@ int onlycopydisplayed = 0;
 int copymetadata = 0;
 int copyttfinstr = 0;
 int export_clipboard = 1;
+
+extern void *UHintCopy(SplineChar *sc,int docopy);
+extern void ExtractHints(SplineChar *sc,void *hints,int docopy);
+extern void UndoesFreeButRetainFirstN( Undoes** undopp, int retainAmount );
+
+#if 0 && defined( __GLIBC__ ) && !defined( __CygWin )
+/* backtrace functions if you need to debug FontForge - needs glibc */
+/* may be useful if you need to track where routine was called from */
+#include <execinfo.h>
+#include <stdio.h>
+
+extern void BackTraceFD( int fd );
+extern void BackTrace( const char* msg );
+
+void BackTraceFD( int fd ) {
+#if defined(__MINGW32__)
+#else
+    const int arraysz = 500;
+    void* array[arraysz];
+    size_t size;
+    
+    size = backtrace( array, arraysz ); 
+    backtrace_symbols_fd( array, size, fd );
+#endif
+}
+
+void BackTrace( const char* msg ) {
+    fprintf( stderr, msg );
+    BackTraceFD( 2 );
+}
+#endif
 
 /* ********************************* Undoes ********************************* */
 
@@ -380,7 +416,7 @@ return;
     }
 }
 
-static void *UHintCopy(SplineChar *sc,int docopy) {
+void *UHintCopy(SplineChar *sc,int docopy) {
     StemInfo *h = sc->hstem, *v = sc->vstem, *last=NULL;
     DStemInfo *d = sc->dstem;
     void *ret = NULL;
@@ -417,7 +453,7 @@ static void *UHintCopy(SplineChar *sc,int docopy) {
 return(ret);
 }
 
-static void ExtractHints(SplineChar *sc,void *hints,int docopy) {
+void ExtractHints(SplineChar *sc,void *hints,int docopy) {
     StemInfo *h = NULL, *v = NULL, *p;
     DStemInfo *d = NULL;
     StemInfo *pv = NULL, *pd = NULL;
@@ -457,6 +493,34 @@ static void ExtractHints(SplineChar *sc,void *hints,int docopy) {
     sc->hconflicts = StemInfoAnyOverlaps(h);
     sc->vconflicts = StemInfoAnyOverlaps(v);
 }
+
+void UndoesFreeButRetainFirstN( Undoes** undopp, int retainAmount )
+{
+    if( !undopp || !*undopp )
+        return;
+    Undoes* undo = *undopp;
+    // wipe them all will change the list header pointer too
+    if( !retainAmount ) {
+        UndoesFree( undo );
+        *undopp = 0;
+        return;
+    }
+    
+    Undoes* undoprev = undo;
+    for( ; retainAmount > 0 && undo ; retainAmount-- )
+    {
+        undoprev = undo;
+        undo = undo->next;
+    }
+    // not enough items to need to do a trim.
+    if( retainAmount > 0 )
+        return;
+    
+    // break off and free the tail
+    UndoesFree( undo );
+    undoprev->next = 0;
+}
+
 
 void UndoesFree(Undoes *undo) {
     Undoes *unext;
@@ -3565,7 +3629,7 @@ return;
 
     if ( copybuffer.undotype == ut_none ) {
 	j = -1;
-	forever {
+	while ( 1 ) {
 	    for ( i=0; i<fv->map->enccount; ++i ) if ( fv->selected[i] )
 		SCCheckXClipboard(SFMakeChar(sf,fv->map,i),ly_fore,!pasteinto);
 	    ++j;
@@ -3615,7 +3679,7 @@ return;
 	    if ( cur->undotype==ut_multiple )
 		cur = cur->u.multiple.mult;
 	}
-	forever {
+	while ( 1 ) {
 	    switch ( cur->undotype ) {
 	      case ut_noop:
 	      break;

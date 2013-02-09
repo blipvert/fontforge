@@ -30,10 +30,12 @@
 #include "baseviews.h"
 
 #include <ggadget.h>
+#include "dlist.h"
 
 struct gfi_data;
 struct contextchaindlg;
 struct statemachinedlg;
+
 
 extern struct cvshows {
     int showfore, showback, showgrids, showhhints, showvhints, showdhints;
@@ -87,6 +89,11 @@ struct instrinfo {
     int  (*handle_char)(struct instrinfo *,GEvent *e);
 };
 
+struct reflist {
+    RefChar *ref;
+    struct reflist *parent;
+};
+
 typedef struct debugview {
     struct debugger_context *dc;	/* Local to freetype.c */
     GWindow dv, v;
@@ -109,12 +116,22 @@ typedef struct debugview {
 
     int codeSize;
     uint8 initialbytes[4];
-    struct reflist { RefChar *ref; struct reflist *parent; } *active_refs;
+    struct reflist *active_refs;
     int last_npoints;
     int layer;
 } DebugView;
 
 enum dv_coderange { cr_none=0, cr_fpgm, cr_prep, cr_glyph };	/* cleverly chosen to match ttobjs.h */
+
+struct freehand {
+    struct tracedata *head, *last;	/* for the freehand tool */
+    SplinePointList *current_trace;
+    int ignore_wobble;		/* Ignore wiggles smaller than this */
+    int skip_cnt;
+};
+
+enum expandedge { ee_none, ee_nw, ee_up, ee_ne, ee_right, ee_se, ee_down,
+		  ee_sw, ee_left, ee_max };
 
 typedef struct charview {
     CharViewBase b;
@@ -173,9 +190,14 @@ typedef struct charview {
     GFont *small, *normal;
     GWindow icon;
     GWindow ruler_w;
+    GWindow ruler_linger_w;
+    unichar_t ruler_linger_lines[40][80];
+    int ruler_linger_num_lines;
     int num_ruler_intersections;
     int allocated_ruler_intersections;
     BasePoint *ruler_intersections;
+    int start_intersection_snapped;
+    int end_intersection_snapped;
     GFont *rfont;
     GTimer *pressed;
     GWindow backimgs;
@@ -212,14 +234,8 @@ typedef struct charview {
     IPoint handscroll_base;
     uint16 rfh, ras;
     BasePoint lastknife;
-    struct freehand {
-	struct tracedata *head, *last;	/* for the freehand tool */
-	SplinePointList *current_trace;
-	int ignore_wobble;		/* Ignore wiggles smaller than this */
-	int skip_cnt;
-    } freehand;
-    enum expandedge { ee_none, ee_nw, ee_up, ee_ne, ee_right, ee_se, ee_down,
-	    ee_sw, ee_left, ee_max } expandedge;
+    struct freehand freehand;
+    enum expandedge expandedge;
     BasePoint expandorigin;
     real expandwidth, expandheight;
     SplinePointList *active_shape;
@@ -252,6 +268,7 @@ typedef struct charview {
     int guide_pos;
     struct qg_data *qg;
     int16 note_x, note_y;
+    struct dlistnode* pointInfoDialogs;
 } CharView;
 
 typedef struct bitmapview {
@@ -298,6 +315,18 @@ struct aplist { AnchorPoint *ap; int connected_to, selected; struct aplist *next
 
 enum mv_grids { mv_hidegrid, mv_showgrid, mv_partialgrid, mv_hidemovinggrid };
 enum mv_type { mv_kernonly, mv_widthonly, mv_kernwidth };
+
+struct metricchar {
+    int16 dx, dwidth;	/* position and width of the displayed char */
+    int16 dy, dheight;	/*  displayed info for vertical metrics */
+    int xoff, yoff;
+    int16 mx, mwidth;	/* position and width of the text underneath */
+    int16 kernafter;
+    unsigned int selected: 1;
+    GGadget *width, *lbearing, *rbearing, *kern, *name;
+    GGadget* updownkparray[10]; /* Cherry picked elements from width...kern allowing up/down key navigation */
+};
+
 typedef struct metricsview {
     struct fontview *fv;
     SplineFont *sf;
@@ -321,16 +350,7 @@ typedef struct metricsview {
     int16 cmax, clen; 
     SplineChar **chars;		/* Character input stream */
     struct opentype_str *glyphs;/* after going through the various gsub/gpos transformations */
-    struct metricchar {		/* One for each glyph above */
-	int16 dx, dwidth;	/* position and width of the displayed char */
-	int16 dy, dheight;	/*  displayed info for vertical metrics */
-	int xoff, yoff;
-	int16 mx, mwidth;	/* position and width of the text underneath */
-	int16 kernafter;
-	unsigned int selected: 1;
-	GGadget *width, *lbearing, *rbearing, *kern, *name;
-	GGadget* updownkparray[10]; /* Cherry picked elements from width...kern allowing up/down key navigation */
-    } *perchar;
+    struct metricchar *perchar;	/* One for each glyph above */
     SplineChar **sstr;		/* Character input stream */
     int16 mwidth, mbase;
     int16 glyphcnt, max;
@@ -564,25 +584,35 @@ typedef struct strokedlg {
 } StrokeDlg;
 extern void StrokeCharViewInits(StrokeDlg *sd,int cid);
 
+struct lksubinfo {
+    struct lookup_subtable *subtable;
+    unsigned int deleted: 1;
+    unsigned int new: 1;
+    unsigned int selected: 1;
+    unsigned int moved: 1;
+};
+
+struct lkinfo {
+    OTLookup *lookup;
+    unsigned int open: 1;
+    unsigned int deleted: 1;
+    unsigned int new: 1;
+    unsigned int selected: 1;
+    unsigned int moved: 1;
+    int16 subtable_cnt, subtable_max;
+    struct lksubinfo *subtables;
+};
+
 struct lkdata {
     int cnt, max;
     int off_top, off_left;
-    struct lkinfo {
-	OTLookup *lookup;
-	unsigned int open: 1;
-	unsigned int deleted: 1;
-	unsigned int new: 1;
-	unsigned int selected: 1;
-	unsigned int moved: 1;
-	int16 subtable_cnt, subtable_max;
-	struct lksubinfo {
-	    struct lookup_subtable *subtable;
-	    unsigned int deleted: 1;
-	    unsigned int new: 1;
-	    unsigned int selected: 1;
-	    unsigned int moved: 1;
-	} *subtables;
-    } *all;
+    struct lkinfo *all;
+};
+
+struct anchor_shows {
+    CharView *cv;
+    SplineChar *sc;
+    int restart;
 };
 
 struct gfi_data {		/* FontInfo */
@@ -600,7 +630,7 @@ struct gfi_data {		/* FontInfo */
     unsigned int mpdone: 1;
     unsigned int lk_drag_and_drop: 1;
     unsigned int lk_dropablecursor: 1;
-    struct anchor_shows { CharView *cv; SplineChar *sc; int restart; } anchor_shows[2];
+    struct anchor_shows anchor_shows[2];
     struct texdata texdata;
     GFont *font;
     int as, fh;
@@ -870,6 +900,7 @@ extern int CVOneThingSel(CharView *cv, SplinePoint **sp, SplinePointList **spl,
 	RefChar **ref, ImageList **img, AnchorPoint **ap, spiro_cp **cp);
 extern int CVOneContourSel(CharView *cv, SplinePointList **_spl,
 	RefChar **ref, ImageList **img);
+extern void CVInfoDrawText(CharView *cv, GWindow pixmap );
 extern void CVImport(CharView *cv);
 extern void BVImport(BitmapView *bv);
 extern void FVImport(FontView *bv);
@@ -908,6 +939,7 @@ extern void CVAddAnchor(CharView *cv);
 extern AnchorClass *AnchorClassUnused(SplineChar *sc,int *waslig);
 extern void FVSetWidth(FontView *fv,enum widthtype wtype);
 extern void CVSetWidth(CharView *cv,enum widthtype wtype);
+extern void GenericVSetWidth(FontView *fv,SplineChar* sc,enum widthtype wtype);
 extern void CVChangeSC(CharView *cv, SplineChar *sc );
 extern Undoes *CVPreserveTState(CharView *cv);
 extern void CVRestoreTOriginalState(CharView *cv);
@@ -980,6 +1012,7 @@ extern GTextInfo *SLOfFont(SplineFont *sf);
 
 extern void DoPrefs(void);
 extern void DoXRes(void);
+extern void PointerDlg(CharView *cv);
 extern void LastFonts_Activate(void);
 extern void LastFonts_End(int success);
 extern void GListAddStr(GGadget *list,unichar_t *str, void *ud);
@@ -1189,7 +1222,82 @@ extern char *GlyphSetFromSelection(SplineFont *sf,int def_layer,char *current);
 extern void ME_ListCheck(GGadget *g,int r, int c, SplineFont *sf);
 extern void ME_SetCheckUnique(GGadget *g,int r, int c, SplineFont *sf);
 extern void ME_ClassCheckUnique(GGadget *g,int r, int c, SplineFont *sf);
+extern void PI_Destroy(struct dlistnode *node);
+struct gidata;
+extern void PIChangePoint(struct gidata *ci);
 
 extern void CVRegenFill(CharView *cv);
+extern void RulerDlg(CharView *cv);
+extern int  CVCountSelectedPoints(CharView *cv);
+extern void _CVMenuInsertPt(CharView *cv);
+extern void _CVMenuNameContour(CharView *cv);
+
+// sfd.c
+extern void SFD_DumpPST( FILE *sfd, SplineChar *sc );
+extern void SFD_DumpKerns( FILE *sfd, SplineChar *sc, int *newgids );
+extern void SFDDumpCharStartingMarker(FILE *sfd,SplineChar *sc);
+
+/**
+ * Create, open and unlink a new temporary file. This allows the
+ * caller to write to and read from the file without needing to worry
+ * about cleaning up the filesystem at all.
+ *
+ * On Linux, this will create a new file in /tmp with a secure name,
+ * open it, and delete the file from the filesystem. The application
+ * can still happily use the file as it has it open, but once it is
+ * closed or the application itself closes (or crashes) then the file
+ * will be expunged for you by the kernel.
+ *
+ * The caller can fclose() the returned file. Other applications will
+ * not be able to find the file by name anymore when this call
+ * returns.
+ */
+extern FILE* MakeTemporaryFile(void);
+
+/*
+ * Convert the contents of a File* to a newly allocated string
+ * The caller needs to free the returned string.
+ */
+extern char* FileToAllocatedString( FILE *f );
+extern char *getquotedeol(FILE *sfd);
+extern int getname(FILE *sfd, char *tokbuf);
+extern void SFDGetKerns( FILE *sfd, SplineChar *sc, char* ttok );
+extern void SFDGetPSTs( FILE *sfd, SplineChar *sc, char* ttok );
+
+/**
+ * Move the sfd file pointer to the start of the next glyph. Return 0
+ * if there is no next glyph. Otherwise, a copy of the string on the
+ * line of the SFD file that starts the glyph is returned. The caller
+ * should return the return value of this function.
+ *
+ * If the glyph starts with:
+ * StartChar: a
+ * The the return value with be "a" (sans the quotes).
+ *
+ * This is handy if the caller is done with a glyph and just wants to
+ * skip to the start of the next one.
+ */
+extern char* SFDMoveToNextStartChar( FILE* sfd );
+
+/**
+ * Some references in the SFD file are to a numeric glyph ID. As a
+ * sneaky method to handle that, fontforge will load these glyph
+ * numbers into the pointers which should refer to the glyph. For
+ * example, in kerning, instead of pointing to the splinechar for the
+ * "v" glyph, the ID might be stored there, say the number 143. This
+ * fixup function will convert such 143 references to being pointers
+ * to the splinechar with a numeric ID of 143. It is generally a good
+ * idea to do this, as some fontforge code will of course assume a
+ * pointer to a splinechar is a pointer to a splinechar and not just
+ * the glyph index of that splinechar.
+ *
+ * MIQ updated this in Oct 2012 to be more forgiving when called twice
+ * or on a splinefont which has some of it's references already fixed.
+ * This was to allow partial updates of data structures from SFD
+ * fragments and the fixup to operate just on those references which
+ * need to be fixed.
+ */
+extern void SFDFixupRefs(SplineFont *sf);
+
 
 #endif	/* _VIEWS_H */

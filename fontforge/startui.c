@@ -24,7 +24,10 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+#include "config.h"
 #include "fontforgeui.h"
+#include "annotations.h"
 #include <gfile.h>
 #include <gresource.h>
 #include <ustring.h>
@@ -35,6 +38,14 @@
 #include <unistd.h>
 #include <dynamic.h>
 #include <stdlib.h>		/* getenv,setenv */
+#include <sys/stat.h>
+#include <sys/types.h>
+#include "../gdraw/hotkeys.h"
+
+#ifdef __Mac
+extern void setup_cocoa_app();
+#endif
+
 #ifdef _NO_LIBPNG
 #  define PNGLIBNAME	"libpng"
 #else
@@ -48,24 +59,17 @@
 #  endif
 #endif
 #ifdef __Mac
-# include <Developer/Headers/FlatCarbon/Files.h>
-# define FontInfo	MacFontInfo
-# define KernPair	MacKernPair
-# include <Developer/Headers/FlatCarbon/CarbonEvents.h>
+#  include <carbon.h>
 /* For reasons obscure to me RunApplicationEventLoop is not defined in */
 /*  the mac header files if we are in 64 bit mode. Strangely it seems to */
 /*  be in the libraries and functional */
-#if __LP64__
+#  if __LP64__
 extern void RunApplicationEventLoop(void);
-#endif
-# undef FontInfo
-# undef KernPair
+#  endif
 #endif
 
 #if defined(__MINGW32__)
 #include <Windows.h>
-int  srandom( int n ){ srand(n); }
-int  random( void ){ return rand();}
 void sleep( int n ){ _sleep(n);}
 #endif
 
@@ -98,9 +102,6 @@ static void _dousage(void) {
 #endif
 #ifndef _NO_LIBCAIRO
     printf( "\t-usecairo=yes|no  Use (or not) the cairo library for drawing\n" );
-#endif
-#ifndef _NO_LIBPANGO
-    printf( "\t-usepango=yes|no  Use (or not) the pango library for text\n" );
 #endif
     printf( "\t-help\t\t\t (displays this message, and exits)\n" );
     printf( "\t-docs\t\t\t (displays this message, invokes a browser)\n\t\t\t\t (Using the BROWSER environment variable)\n" );
@@ -147,313 +148,6 @@ static void dohelp(void) {
 exit(0);
 }
 
-static struct library_descriptor {
-    char *libname;
-    char *entry_point;
-    char *description;
-    char *url;
-    int usable;
-    char *depends_on;
-    int so_version;
-} libs[] = {
-    {
-#ifdef PYTHON_LIB_NAME
-	"lib" PYTHON_LIB_NAME,
-#else
-	"libpython-",		/* a bad name */
-#endif
-	dlsymmod("Py_Main"),
-	"This allows users to write python scripts in fontforge",
-	"http://www.python.org/",
-#ifdef _NO_PYTHON
-	0,
-#else
-	1,
-#endif
-	NULL,
-	-1
-    },
-    { "libspiro", dlsymmod("TaggedSpiroCPsToBezier"), "This allows you to edit with Raph Levien's spiros.", "http://libspiro.sf.net/",
-#ifdef _NO_LIBSPIRO
-	0,
-#else
-	1,
-#endif
-	NULL,
-	-1
-    },
-    { "libz", dlsymmod("deflateEnd"), "This is a prerequisite for reading image png files,\n\t and is used for some pdf files.", "http://www.gzip.org/zlib/",
-#ifdef _NO_LIBPNG
-	0,
-#else
-	1,
-#endif
-	NULL,
-	1
-    },
-    { PNGLIBNAME, dlsymmod("png_create_read_struct"), "This reads png image files.", "http://www.libpng.org/pub/png/libpng.html",
-#ifdef _NO_LIBPNG
-	0,
-#else
-	1,
-#endif
-	"libz",
-	0 },
-    { "libjpeg", dlsymmod("jpeg_CreateDecompress"), "This allows fontforge to load jpeg images.", "http://www.ijg.org/",
-#ifdef _NO_LIBPNG
-	0,
-#else
-	1,
-#endif
-	NULL,
-	-1
-    },
-    { "libtiff", dlsymmod("TIFFOpen"), "This allows fontforge to open tiff images.", "http://www.libtiff.org/",
-#ifdef _NO_LIBTIFF
-	0,
-#else
-	1,
-#endif
-	NULL,
-	-1
-    },
-    { "libgif", dlsymmod("DGifOpenFileName"), "This allows fontforge to open gif images.", "http://gnuwin32.sf.net/packages/libungif.htm",
-#ifdef _NO_LIBUNGIF
-	0,
-#else
-	1,
-#endif
-	NULL, -1
-    },
-    { "libungif", dlsymmod("DGifOpenFileName"), "This allows fontforge to open gif images.", "http://gnuwin32.sf.net/packages/libungif.htm",
-#ifdef _NO_LIBUNGIF
-	0,
-#else
-	1,
-#endif
-	NULL, -1
-    },
-    { "libxml2", dlsymmod("xmlParseFile"), "This allows fontforge to load svg files and fonts and ufo fonts.", "http://xmlsoft.org/",
-#ifdef _NO_LIBXML
-	0,
-#else
-	1,
-#endif
-	NULL,
-	2
-    },
-    { "libuninameslist", dlsymmod("UnicodeNameAnnot"), "This provides fontforge with the names of all (named) unicode characters", "http://libuninameslist.sf.net/",
-#ifdef _NO_LIBUNINAMESLIST
-	0,
-#else
-	1,
-#endif
-	NULL, -1
-    },
-    { "libfreetype", dlsymmod("FT_New_Memory_Face"), "This provides a better rasterizer than the one built in to fontforge", "http://freetype.sf.net/",
-#if _NO_FREETYPE || _NO_MMAP
-	0,
-#else
-	1,
-#endif
-	NULL,
-	6
-    },
-    { "libfontconfig", dlsymmod("FcConfigCreate"), "This is used to find fonts for cairo and pango.", "http://fontconfig.org/",
-#if defined(_NO_LIBCAIRO) && defined(_NO_LIBPANGO)
-	0,
-#else
-	1,
-#endif
-	NULL, 1
-	},
-    { "libcairo", dlsymmod("cairo_xlib_surface_create"), "This provides anti-aliased drawing.", "http://www.cairographics.org/",
-#ifdef _NO_LIBCAIRO
-	0,
-#else
-	1,
-#endif
-	"libfontconfig",
-	2 },
-    { "libXft", dlsymmod("XftDrawCreate"), "This provides anti-aliased text without cairo.", "http://www.x.org/",
-#ifdef _NO_LIBPANGO
-	0,
-#else
-	1,
-#endif
-	"libfontconfig",
-	2 },
-    { "libglib-2.0", dlsymmod("g_main_loop_run"), "This provides a basic class mechanism for pango.", "http://www.gtk.org/",
-#ifdef _NO_LIBPANGO
-	0,
-#else
-	1,
-#endif
-	NULL,
-	0 },
-    { "libpango-1.0", dlsymmod("pango_font_description_new"), "This provides support for complex scripts (Arabic, Indic, etc.).", "http://www.pango.org/",
-#ifdef _NO_LIBPANGO
-	0,
-#else
-	1,
-#endif
-	"libglib-2.0",
-	0 },
-    { "libpangoxft-1.0", dlsymmod("pango_xft_render"), "This is a layer of pango for use on X windows.", "http://www.pango.org/",
-#ifdef _NO_LIBPANGO
-	0,
-#else
-	1,
-#endif
-	"libXft",
-	0 },
-    { "libpangocairo-1.0", dlsymmod("pango_cairo_show_glyph_string"), "This is a layer of pango for use on a cairo window.", "http://www.pango.org/",
-#ifdef _NO_LIBPANGO
-	0,
-#else
-	1,
-#endif
-	"libcairo",
-	0 },
-    { NULL, NULL, NULL, NULL, 0, NULL, 0 }
-};
-
-static void _dolibrary(void) {
-#if !defined(__MINGW32__)
-#ifndef __VMS
-   int i, j;
-    char buffer[3000];
-    int fail, isfreetype, hasdebugger;
-    DL_CONST void *lib_handle;
-    static char *sos[] = { SO_0_EXT, SO_1_EXT, SO_2_EXT, NULL, NULL, NULL, SO_6_EXT, NULL, NULL };
-
-    fprintf( stderr, "\n" );
-    for ( i=0; libs[i].libname!=NULL; ++i ) {
-	fail = false;
-	if ( libs[i].depends_on!=NULL ) {
-	    for ( j=0; libs[j].libname!=NULL; ++j )
-		if ( strcmp(libs[i].depends_on,libs[j].libname)==0 )
-	    break;
-	    sprintf( buffer, "%s%s", libs[i].depends_on, SO_EXT );
-	    lib_handle = dlopen(buffer,RTLD_LAZY);
-#ifdef LIBDIR
-	    if ( lib_handle==NULL ) {
-		snprintf( buffer, sizeof(buffer), LIBDIR "/%s" SO_EXT, libs[i].depends_on );
-		lib_handle = dlopen(buffer,RTLD_LAZY);
-	    }
-#endif
-#ifdef __Mac
-	    if ( lib_handle==NULL ) {
-		snprintf( buffer, sizeof(buffer), "/usr/X11R6/lib/%s" SO_EXT, libs[i].depends_on );
-		lib_handle = dlopen(buffer,RTLD_LAZY);
-	    }
-#endif
-	    if ( lib_handle==NULL && libs[j].so_version>=0 ) {
-		char *so_ext;
-		if ( libs[j].so_version >= sizeof(sos)/sizeof(sos[0]) ||
-			(so_ext = sos[ libs[j].so_version ])==NULL )
-		    fprintf( stderr, "Internal mixup: so_version not supported %d\n", libs[i].so_version );
-		else {
-		    sprintf( buffer, "%s%s", libs[i].depends_on, so_ext );
-		    lib_handle = dlopen(buffer,RTLD_LAZY);
-#ifdef LIBDIR
-		    if ( lib_handle==NULL ) {
-			snprintf( buffer, sizeof(buffer), LIBDIR "/%s%s", libs[i].depends_on, so_ext );
-			lib_handle = dlopen(buffer,RTLD_LAZY);
-		    }
-#endif
-#ifdef __Mac
-		    if ( lib_handle==NULL ) {
-			snprintf( buffer, sizeof(buffer), "/usr/X11R6/lib/%s%s", libs[i].depends_on, so_ext );
-			lib_handle = dlopen(buffer,RTLD_LAZY);
-		    }
-#endif
-		}
-	    }
-	    if ( lib_handle==NULL )
-		fail = 3;
-	    else if ( libs[j].libname!=NULL ) {
-		if ( dlsymbare(lib_handle,libs[j].entry_point)==NULL )
-		    fail = 4;
-	    }
-	}
-	if ( !fail ) {
-	    sprintf( buffer, "%s%s", libs[i].libname, SO_EXT );
-	    lib_handle = dlopen(buffer,RTLD_LAZY);
-#ifdef LIBDIR
-	    if ( lib_handle==NULL ) {
-		snprintf( buffer, sizeof(buffer), LIBDIR "/%s" SO_EXT, libs[i].libname );
-		lib_handle = dlopen(buffer,RTLD_LAZY);
-	    }
-#endif
-#ifdef __Mac
-	    if ( lib_handle==NULL ) {
-		snprintf( buffer, sizeof(buffer), "/usr/X11R6/lib/%s" SO_EXT, libs[i].libname );
-		lib_handle = dlopen(buffer,RTLD_LAZY);
-	    }
-#endif
-	    if ( lib_handle==NULL && libs[i].so_version>=0 ) {
-		char *so_ext;
-		if ( libs[i].so_version >= sizeof(sos)/sizeof(sos[0]) ||
-			(so_ext = sos[ libs[i].so_version ])==NULL )
-		    fprintf( stderr, "Internal mixup: so_version not supported %d\n", libs[i].so_version );
-		else {
-		    sprintf( buffer, "%s%s", libs[i].libname, so_ext );
-		    lib_handle = dlopen(buffer,RTLD_LAZY);
-#ifdef LIBDIR
-		    if ( lib_handle==NULL ) {
-			snprintf( buffer, sizeof(buffer), LIBDIR "/%s%s", libs[i].libname, so_ext );
-			lib_handle = dlopen(buffer,RTLD_LAZY);
-		    }
-#endif
-#ifdef __Mac
-		    if ( lib_handle==NULL ) {
-			snprintf( buffer, sizeof(buffer), "/usr/X11R6/lib/%s%s", libs[i].libname, so_ext );
-			lib_handle = dlopen(buffer,RTLD_LAZY);
-		    }
-#endif
-		}
-	    }
-	    if ( lib_handle==NULL )
-		fail = true;
-	    else {
-		if ( dlsymbare(lib_handle,libs[i].entry_point)==NULL )
-		    fail = 2;
-	    }
-	}
-	isfreetype = strcmp(libs[i].libname,"libfreetype")==0;
-	hasdebugger = false;
-	if ( !fail && isfreetype && dlsym(lib_handle,"TT_RunIns")!=NULL )
-	    hasdebugger = true;
-	fprintf( stderr, "%-15s - %s\n", libs[i].libname,
-		fail==0 ? "is present and appears functional on your system." :
-		fail==1 ? "is not present on your system." :
-		fail==2 ? "is present on your system but is not functional." :
-		fail==3 ? "a prerequisite library is missing: " :
-			"a prerequisite library is not functional: " );
-	if ( fail>=3 && libs[i].depends_on!=NULL )
-	    fprintf( stderr, "\t\t%s.\n", libs[i].depends_on );
-	fprintf( stderr, "\t%s\n", libs[i].description );
-	if ( isfreetype ) {
-	    if ( hasdebugger )
-		fprintf( stderr, "\tThis version of freetype includes the byte code interpreter\n\t which means you can use fontforge as a truetype debugger.\n" );
-	    else
-		fprintf( stderr, "\tThis version of freetype does notinclude the byte code interpreter\n\t which means you cannot use fontforge as a truetype debugger.\n\t If you want the debugger you must download freetype source,\n\t enable the bytecode interpreter, and then build it.\n" );
-	}
-	if ( fail || (isfreetype && !hasdebugger))
-	    fprintf( stderr, "\tYou may download %s from %s .\n", libs[i].libname, libs[i].url );
-	if ( !libs[i].usable )
-	    fprintf( stderr, "\tUnfortunately this version of fontforge is not configured to use this\n\t library.  You must rebuild from source.\n" );
-    }
-#endif
-#endif
-}
-
-static void dolibrary(void) {
-    _dolibrary();
-exit(0);
-}
-
 struct delayed_event {
     void *data;
     void (*func)(void *);
@@ -473,7 +167,7 @@ static GTimer *autosave_timer, *splasht;
 static GFont *splash_font, *splash_italic;
 static int as,fh, linecnt;
 static unichar_t msg[470];
-static unichar_t *lines[20], *is, *ie;
+static unichar_t *lines[30], *is, *ie;
 
 void ShowAboutScreen(void) {
     static int first=1;
@@ -502,7 +196,7 @@ static void SplashLayout() {
 	lastspace = NULL;
 	for ( pt=start; ; ++pt ) {
 	    if ( *pt==' ' || *pt=='\0' ) {
-		if ( GDrawGetTextWidth(splashw,start,pt-start,NULL)<splashimage.u.image->width-10 )
+		if ( GDrawGetTextWidth(splashw,start,pt-start)<splashimage.u.image->width-10 )
 		    lastspace = pt;
 		else
 	break;
@@ -516,11 +210,22 @@ static void SplashLayout() {
 	if ( *pt ) ++pt;
     }
     uc_strcpy(pt, " FontForge used to be named PfaEdit.");
+
+    pt += u_strlen(pt);
+    lines[linecnt++] = pt;
+    uc_strcpy(pt,"  git hash: ");;
+    pt += u_strlen(pt);
+    lines[linecnt++] = pt;
+    uc_strcat(pt, FONTFORGE_GIT_VERSION);
+    
     pt += u_strlen(pt);
     lines[linecnt++] = pt;
     uc_strcpy(pt,"  Version: ");;
     uc_strcat(pt,source_modtime_str);
-    uc_strcat(pt," (");
+    
+    pt += u_strlen(pt);
+    lines[linecnt++] = pt;
+    uc_strcat(pt,"           (");
     uc_strcat(pt,source_version_str);
     uc_strcat(pt,"-ML");
 #ifdef FREETYPE_HAS_DEBUGGER
@@ -535,7 +240,7 @@ static void SplashLayout() {
     uc_strcat(pt,")");
     pt += u_strlen(pt);
     lines[linecnt++] = pt;
-    uc_strcpy(pt,"  Library Version: ");
+    uc_strcpy(pt,"  Lib Version: ");
     uc_strcat(pt,library_version_configuration.library_source_modtime_string);
     lines[linecnt++] = pt+u_strlen(pt);
     lines[linecnt] = NULL;
@@ -788,7 +493,7 @@ static  OSErr install_apple_event_handlers(void) {
 #else
     sprintf( buffer, "%s/.FontForge-LogFile.txt", getenv("HOME"));
 #endif
-    logfile = fopen("/Users/gww/LogFile.txt","w");
+    logfile = fopen("/tmp/LogFile.txt","w");
  }
  if ( logfile==NULL )
   logfile = stderr;
@@ -842,15 +547,15 @@ static int splash_e_h(GWindow gw, GEvent *event) {
 	y = splashimage.u.image->height + as + fh/2;
 	for ( i=1; i<linecnt; ++i ) {
 	    if ( is>=lines[i-1]+1 && is<lines[i] ) {
-		x = 8+GDrawDrawBiText(gw,8,y,lines[i-1]+1,is-lines[i-1]-1,NULL,0x000000);
+		x = 8+GDrawDrawText(gw,8,y,lines[i-1]+1,is-lines[i-1]-1,0x000000);
 		GDrawSetFont(gw,splash_italic);
-		GDrawDrawBiText(gw,x,y,is,lines[i]-is,NULL,0x000000);
+		GDrawDrawText(gw,x,y,is,lines[i]-is,0x000000);
 	    } else if ( ie>=lines[i-1]+1 && ie<lines[i] ) {
-		x = 8+GDrawDrawBiText(gw,8,y,lines[i-1]+1,ie-lines[i-1]-1,NULL,0x000000);
+		x = 8+GDrawDrawText(gw,8,y,lines[i-1]+1,ie-lines[i-1]-1,0x000000);
 		GDrawSetFont(gw,splash_font);
-		GDrawDrawBiText(gw,x,y,ie,lines[i]-ie,NULL,0x000000);
+		GDrawDrawText(gw,x,y,ie,lines[i]-ie,0x000000);
 	    } else
-		GDrawDrawBiText(gw,8,y,lines[i-1]+1,lines[i]-lines[i-1]-1,NULL,0x000000);
+		GDrawDrawText(gw,8,y,lines[i-1]+1,lines[i]-lines[i-1]-1,0x000000);
 	    y += fh;
 	}
 	GDrawPopClip(gw,&old);
@@ -914,12 +619,18 @@ return( true );
 return( true );
 }
 
-static void AddR(char *prog, char *name, char *val ) {
-    char *full = galloc(strlen(name)+strlen(val)+4);
-    strcpy(full,name);
-    strcat(full,": ");
-    strcat(full,val);
-    GResourceAddResourceString(full,prog);
+static void  AddR(char *program_name, char *window_name, char *cmndline_val) {
+/* Add this command line value to this GUI resource.			*/
+/* These are the command line options expected when using this routine:	*/
+/*	-depth, -vc,-cmap or -colormap,-dontopenxdevices, -keyboard	*/
+    char *full;
+    if ((full = malloc(strlen(window_name)+strlen(cmndline_val)+4))!=NULL) {
+	strcpy(full,window_name);
+	strcat(full,": ");
+	strcat(full,cmndline_val);
+	GResourceAddResourceString(full,program_name);
+	free(full);
+    }
 }
 
 static int ReopenLastFonts(void) {
@@ -1012,45 +723,6 @@ return( true );
 }
 #endif
 
-static char *getLocaleDir(void) {
-    static char *sharedir=NULL;
-    static int set=false;
-    char *pt;
-    int len;
-
-    if ( set )
-return( sharedir );
-
-    set = true;
-
-#if defined(__MINGW32__)
-
-    len = strlen(GResourceProgramDir) + strlen("/share/locale") +1;
-    sharedir = galloc(len);
-    strcpy(sharedir, GResourceProgramDir);
-    strcat(sharedir, "/share/locale");
-    return sharedir;
-
-#else
-
-    pt = strstr(GResourceProgramDir,"/bin");
-    if ( pt==NULL ) {
-#if defined(SHAREDIR)
-return( sharedir = SHAREDIR "/../locale" );
-#elif defined( PREFIX )
-return( sharedir = PREFIX "/share/locale" );
-#else
-	pt = GResourceProgramDir + strlen(GResourceProgramDir);
-#endif
-    }
-    len = (pt-GResourceProgramDir)+strlen("/share/locale")+1;
-    sharedir = galloc(len);
-    strncpy(sharedir,GResourceProgramDir,pt-GResourceProgramDir);
-    strcpy(sharedir+(pt-GResourceProgramDir),"/share/locale");
-return( sharedir );
-
-#endif
-}
 
 #if defined(__Mac)
 static int hasquit( int argc, char **argv ) {
@@ -1069,6 +741,30 @@ static void GrokNavigationMask(void) {
 
     navigation_mask = GMenuItemParseMask(H_("NavigationMask|None"));
 }
+
+/**
+ * Create the directory basedir/dirname with the given mode.
+ * Silently ignore any errors that might happen. 
+ */
+static void ffensuredir( const char* basedir, const char* dirname, mode_t mode ) {
+    const int buffersz = PATH_MAX;
+    char buffer[buffersz+1];
+    
+    snprintf(buffer,buffersz,"%s/%s", basedir, dirname );
+    // ignore errors, this is just to help the user aftre all.
+    mkdir( buffer, mode );
+}
+
+static void ensureDotFontForgeIsSetup() {
+    char *basedir = GFileGetHomeDir();
+    if ( !basedir ) {
+	return;
+    }
+    ffensuredir( basedir, ".FontForge",        S_IRWXU );
+    ffensuredir( basedir, ".FontForge/python", S_IRWXU );
+}
+
+
 
 int fontforge_main( int argc, char **argv ) {
     extern const char *source_modtime_str;
@@ -1103,10 +799,21 @@ int fontforge_main( int argc, char **argv ) {
 	    ".\n",
 	    source_modtime_str );
     fprintf( stderr, " Library based on sources from %s.\n", library_version_configuration.library_source_modtime_string );
+    fprintf( stderr, " Based on source from git with hash:%s\n", FONTFORGE_GIT_VERSION );
 
     /* Must be done before we cache the current directory */
-    for ( i=1; i<argc; ++i ) if ( strcmp(argv[i],"-home")==0 && getenv("HOME")!=NULL )
-	chdir(getenv("HOME"));
+    /* Change to HOME dir if specified on the commandline */
+    for ( i=1; i<argc; ++i ) {
+	char *pt = argv[i];
+	if ( pt[0]=='-' && pt[1]=='-' ) ++pt;
+	if (strcmp(pt,"-home")==0 || strncmp(pt,"-psn_",5)==0) {
+	    /* OK, I don't know what _-psn_ means, but to GW it means */
+	    /* we've been started on the mac from the FontForge.app   */
+	    /* structure, and the current directory is (shudder) "/"  */
+	    if (getenv("HOME")!=NULL) chdir(getenv("HOME"));
+	    break;	/* Done - Unnecessary to check more arguments */
+	}
+    }
 	
 #if defined(__Mac)
     /* Start X if they haven't already done so. Well... try anyway */
@@ -1160,6 +867,7 @@ int fontforge_main( int argc, char **argv ) {
     PythonUI_Init();
 #endif
 
+    FindProgDir(argv[0]);
     InitSimpleStuff();
 
 #if defined(__MINGW32__)
@@ -1231,10 +939,25 @@ int fontforge_main( int argc, char **argv ) {
 
 	gfree(path);
     }
-#elif defined(SHAREDIR)
-    GGadgetSetImageDir(SHAREDIR "/pixmaps");
-    GResourceAddResourceFile(SHAREDIR "/resources/fontforge.resource",GResourceProgramName,false);
+#else
+    {
+	char shareDir[PATH_MAX];
+	char* sd = getShareDir();
+	strncpy( shareDir, sd, PATH_MAX );
+	if(!sd) {
+	    strcpy( shareDir, SHAREDIR );
+	}
+
+	char path[PATH_MAX];
+	snprintf(path, PATH_MAX, "%s%s", shareDir, "/pixmaps" );
+	GGadgetSetImageDir( path );
+	
+	snprintf(path, PATH_MAX, "%s%s", shareDir, "/resources/fontforge.resource" );
+	GResourceAddResourceFile(path, GResourceProgramName,false);
+    }
 #endif
+    hotkeysLoad();
+
 
     if ( load_prefs!=NULL && strcasecmp(load_prefs,"Always")==0 )
 	LoadPrefs();
@@ -1277,11 +1000,6 @@ int fontforge_main( int argc, char **argv ) {
 		GDrawEnableCairo(false);
 	    else
 		GDrawEnableCairo(true);
-	} else if ( strncmp(pt,"-usepango",strlen("-usepango"))==0 ) {
-	    if ( strcmp(pt,"-usepango=no")==0 )
-		GDrawEnablePango(false);
-	    else
-		GDrawEnablePango(true);
 	} else if ( strcmp(pt,"-nosplash")==0 )
 	    splash = 0;
 	else if ( strcmp(pt,"-unique")==0 )
@@ -1314,26 +1032,23 @@ int fontforge_main( int argc, char **argv ) {
 	    dousage();
 	else if ( strcmp(pt,"-version")==0 )
 	    doversion(source_version_str);
-	else if ( strcmp(pt,"-library-status")==0 )
-	    dolibrary();
 	else if ( strcmp(pt,"-quit")==0 )
 	    quit_request = true;
-	else if ( strcmp(pt,"-home")==0 ) {
-	    if ( getenv("HOME")!=NULL )
-		chdir(getenv("HOME"));
+	else if ( strcmp(pt,"-home")==0 )
+	    /* already did a chdir earlier, don't need to do it again */;
 #if defined(__Mac)
-	} else if ( strncmp(pt,"-psn_",5)==0 ) {
-	    /* OK, I don't know what this really means, but to me it means */
-	    /*  that we've been started on the mac from the FontForge.app  */
-	    /*  structure, and the current directory is (shudder) "/" */
+	else if ( strncmp(pt,"-psn_",5)==0 ) {
+	    /* OK, I don't know what _-psn_ means, but to GW it means */
+	    /* we've been started on the mac from the FontForge.app   */
+	    /* structure, and the current directory was (shudder) "/" */
+	    /* (however, we changed to HOME earlier in main routine). */
 	    unique = 1;
-	    if ( getenv("HOME")!=NULL )
-		chdir(getenv("HOME"));
 	    listen_to_apple_events = true;
-#endif
 	}
+#endif
     }
 
+    ensureDotFontForgeIsSetup();
     GDrawCreateDisplays(display,argv[0]);
     default_background = GDrawGetDefaultBackground(screen_display);
     InitToolIconClut(default_background);
@@ -1388,7 +1103,7 @@ exit( 0 );
     splash_italic = GDrawInstanciateFont(NULL,&rq);
     splash_italic = GResourceFindFont("Splash.ItalicFont",splash_italic);
     GDrawSetFont(splashw,splash_font);
-    GDrawFontMetrics(splash_font,&as,&ds,&ld);
+    GDrawWindowFontMetrics(splashw,splash_font,&as,&ds,&ld);
     fh = as+ds+ld;
     SplashLayout();
     localsplash = splash;
@@ -1433,7 +1148,6 @@ exit( 0 );
 		strcmp(pt,"-recover=clean")==0 || strcmp(pt,"-recover=auto")==0 ||
 		strcmp(pt,"-dontopenxdevices")==0 || strcmp(pt,"-unique")==0 ||
 		strncmp(pt,"-usecairo",strlen("-usecairo"))==0 ||
-		strncmp(pt,"-usepango",strlen("-usepango"))==0 ||
 		strcmp(pt,"-home")==0 )
 	    /* Already done, needed to be before display opened */;
 	else if ( strncmp(pt,"-psn_",5)==0 )
@@ -1494,6 +1208,7 @@ exit( 0 );
     if ( listen_to_apple_events ) {
 	install_apple_event_handlers();
 	install_mac_timer();
+	setup_cocoa_app();
 	RunApplicationEventLoop();
     } else
 #endif
@@ -1501,6 +1216,9 @@ exit( 0 );
 	MenuOpen(NULL,NULL,NULL);
     GDrawEventLoop(NULL);
 
+    hotkeysSave();
+    
+    uninm_names_db_close(names_db);
     lt_dlexit();
 
 return( 0 );

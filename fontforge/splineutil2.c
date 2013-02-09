@@ -1,3 +1,4 @@
+/* -*- coding: utf-8 -*- */
 /* Copyright (C) 2000-2012 by George Williams */
 /*
  * Redistribution and use in source and binary forms, with or without
@@ -38,7 +39,7 @@ int new_fonts_are_order2 = false;
 int loaded_fonts_same_as_new = false;
 int default_fv_row_count = 4;
 int default_fv_col_count = 16;
-int default_fv_font_size = 24;
+int default_fv_font_size = 48;
 int default_fv_antialias=true;
 int default_fv_bbsized=true;
 int snaptoint=0;
@@ -3814,7 +3815,7 @@ return(s);
 		/*  don't let that happen */
 		test.x = ((s->splines[0].a*t[i]+s->splines[0].b)*t[i]+s->splines[0].c)*t[i]+s->splines[0].d - s->from->me.x;
 		test.y = ((s->splines[1].a*t[i]+s->splines[1].b)*t[i]+s->splines[1].c)*t[i]+s->splines[1].d - s->from->me.y;
-		if ( test.x*test.x + test.y*test.y<1e-7 ) {
+		if (( test.x*test.x + test.y*test.y<1e-7 ) && ( test.x*test.x + test.y*test.y>0.0 )) {
 		    if ( (forced = ForceEndPointExtrema(s,0))>=0 ) {
 			if ( forced && s->from->prev!=NULL )
 			    SplineAddExtrema(s->from->prev,always,lenbound,offsetbound,b);
@@ -3827,7 +3828,7 @@ return(s);
 		BasePoint test;
 		test.x = ((s->splines[0].a*t[i]+s->splines[0].b)*t[i]+s->splines[0].c)*t[i]+s->splines[0].d - s->to->me.x;
 		test.y = ((s->splines[1].a*t[i]+s->splines[1].b)*t[i]+s->splines[1].c)*t[i]+s->splines[1].d - s->to->me.y;
-		if ( test.x*test.x + test.y*test.y < 1e-7 ) {
+		if (( test.x*test.x + test.y*test.y < 1e-7 ) && ( test.x*test.x + test.y*test.y>0.0 )) {
 		    if ( ForceEndPointExtrema(s,1)>=0 ) {
 			/* don't need to fix up next, because splinesetaddextrema will do that soon */
 			restart = true;

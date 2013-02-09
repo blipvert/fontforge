@@ -30,6 +30,17 @@
 #include "utype.h"
 #include "ustring.h"
 #include "gresource.h"
+#include "hotkeys.h"
+#include "gkeysym.h"
+
+/////////////////////////////////////////////////////////////////
+// The below keys are from this file, when/if we move to GTK+
+// then perhaps we should include this file instead of the inline
+// definitions
+//#include <gdk/gdkkeysyms.h>
+#define GDK_KEY_Tab 0xff09
+#define GDK_KEY_ISO_Left_Tab 0xfe20
+/////////////////////////////////////////////////////////////////
 
 int GTextInfoGetWidth(GWindow base,GTextInfo *ti,FontInstance *font) {
     int width=0;
@@ -42,7 +53,7 @@ int GTextInfoGetWidth(GWindow base,GTextInfo *ti,FontInstance *font) {
 
 	if ( font!=NULL )
 	    GDrawSetFont(base,font);
-	width = GDrawGetBiTextWidth(base,ti->text, -1, -1, NULL);
+	width = GDrawGetTextWidth(base,ti->text, -1);
     }
     if ( ti->image!=NULL ) {
 	iwidth = GImageGetScaledWidth(base,ti->image);
@@ -74,7 +85,7 @@ int GTextInfoGetHeight(GWindow base,GTextInfo *ti,FontInstance *font) {
     GDrawWindowFontMetrics(base,font,&as, &ds, &ld);
     if ( ti->text!=NULL ) {
 	GDrawSetFont(base,font);
-	GDrawGetBiTextBounds(base,ti->text, -1, NULL, &bounds);
+	GDrawGetTextBounds(base,ti->text, -1, &bounds);
 	if ( as<bounds.as ) as = bounds.as;
 	if ( ds<bounds.ds ) ds = bounds.ds;
     }
@@ -111,7 +122,7 @@ int GTextInfoGetAs(GWindow base,GTextInfo *ti, FontInstance *font) {
     GDrawWindowFontMetrics(base,font,&as, &ds, &ld);
     if ( ti->text!=NULL ) {
 	GDrawSetFont(base,font);
-	GDrawGetBiTextBounds(base,ti->text, -1, NULL, &bounds);
+	GDrawGetTextBounds(base,ti->text, -1, &bounds);
 	if ( as<bounds.as ) as = bounds.as;
 	if ( ds<bounds.ds ) ds = bounds.ds;
     }
@@ -143,7 +154,7 @@ int GTextInfoDraw(GWindow base,int x,int y,GTextInfo *ti,
 	    fg = ti->fg;
 
 	GDrawSetFont(base,font);
-	GDrawGetBiTextBounds(base,ti->text, -1, NULL, &bounds);
+	GDrawGetTextBounds(base,ti->text, -1, &bounds);
 	if ( as<bounds.as ) as = bounds.as;
 	if ( ds<bounds.ds ) ds = bounds.ds;
     }
@@ -160,20 +171,6 @@ int GTextInfoDraw(GWindow base,int x,int y,GTextInfo *ti,
 
     r.y = y; r.height = height;
     r.x = 0; r.width = 10000;
-    if (( ti->selected && sel!=COLOR_DEFAULT ) || ( ti->bg!=COLOR_DEFAULT && ti->bg!=COLOR_UNKNOWN )) {
-	Color bg = ti->bg;
-	if ( ti->selected ) {
-	    if ( sel==COLOR_DEFAULT )
-		sel = fg;
-	    bg = sel;
-	    if ( sel==fg ) {
-		fg = ti->bg;
-		if ( fg==COLOR_DEFAULT || fg==COLOR_UNKNOWN )
-		    fg = GDrawGetDefaultBackground(GDrawGetDisplayOfWindow(base));
-	    }
-	}
-	GDrawFillRect(base,&r,bg);
-    }
 
     if ( ti->line ) {
 	_GGroup_Init();
@@ -185,13 +182,28 @@ int GTextInfoDraw(GWindow base,int x,int y,GTextInfo *ti,
 	GBoxDrawHLine(base,&r,&_GGroup_LineBox);
 	GDrawPopClip(base,&old);
     } else {
+	if (( ti->selected && sel!=COLOR_DEFAULT ) || ( ti->bg!=COLOR_DEFAULT && ti->bg!=COLOR_UNKNOWN )) {
+	    Color bg = ti->bg;
+	    if ( ti->selected ) {
+		if ( sel==COLOR_DEFAULT )
+		    sel = fg;
+		bg = sel;
+		if ( sel==fg ) {
+		    fg = ti->bg;
+		    if ( fg==COLOR_DEFAULT || fg==COLOR_UNKNOWN )
+			fg = GDrawGetDefaultBackground(GDrawGetDisplayOfWindow(base));
+		}
+	    }
+	    GDrawFillRect(base,&r,bg);
+	}
+
 	if ( ti->image!=NULL && ti->image_precedes ) {
 	    GDrawDrawScaledImage(base,ti->image,x,y + (iheight>as?0:as-iheight));
 	    x += iwidth + skip;
 	}
 	if ( ti->text!=NULL ) {
 	    int ypos = y+as+(height>fh?(height-fh)/2:0);
-	    int width = GDrawDrawBiText(base,x,ypos,ti->text,-1,NULL,fg);
+	    int width = GDrawDrawText(base,x,ypos,ti->text,-1,fg);
 	    _ggadget_underlineMnemonic(base,x,ypos,ti->text,ti->mnemonic,fg,ymax);
 	    x += width + skip;
 	}
@@ -790,6 +802,7 @@ return(shortcut_domain);
 
 static struct { char *modifier; int mask; char *alt; } modifiers[] = {
     { "Ctl+", ksm_control, NULL },
+    { "Ctrl+", ksm_control, NULL },
     { "Control+", ksm_control, NULL },
     { "Shft+", ksm_shift, NULL },
     { "Shift+", ksm_shift, NULL },
@@ -797,6 +810,7 @@ static struct { char *modifier; int mask; char *alt; } modifiers[] = {
     { "CapsLock+", ksm_capslock, NULL },
     { "Meta+", ksm_meta, NULL },
     { "Alt+", ksm_meta, NULL },
+    { "Esc+", ksm_meta, NULL },
     { "Flag0x01+", 0x01, NULL },
     { "Flag0x02+", 0x02, NULL },
     { "Flag0x04+", 0x04, NULL },
@@ -812,6 +826,8 @@ static struct { char *modifier; int mask; char *alt; } modifiers[] = {
     { "Cmd+", ksm_cmdmacosx, NULL },
     { "NumLk+", ksm_cmdmacosx, NULL },    /* This is unfortunate. Numlock should be ignored, Command should not */
     { "NumLock+", ksm_cmdmacosx, NULL },
+    { "numlock+", ksm_cmdmacosx, NULL },
+    { "numberlock+", ksm_cmdmacosx, NULL },
     { NULL, 0, NULL }
     /* Windows flag key=Super (keysym ffeb/ffec) key maps to 0x40 on my machine */
 };
@@ -871,6 +887,89 @@ return(0);
     }
 }
 
+void HotkeyParse( Hotkey* hk, const char *shortcut ) {
+    char *pt, *sh;
+    int mask, temp, i;
+
+    hk->state  = 0;
+    hk->keysym = 0;
+    strncpy( hk->text, shortcut, HOTKEY_TEXT_MAX_SIZE );
+
+    sh = dgettext(shortcut_domain,shortcut);
+    /* shortcut might be "Open|Ctl+O" meaning the Open menu item is bound to ^O */
+    /*  or "CV*Open|Ctl+O" meaning that in the charview the Open menu item ...*/
+    /*  but if CV*Open|Ctl+O isn't found then check simple "Open|Ctl+O" as a default */
+    if ( sh==shortcut && strlen(shortcut)>2 && shortcut[2]=='*' ) {
+	sh = dgettext(shortcut_domain,shortcut+3);
+	if ( sh==shortcut+3 )
+	    sh = shortcut;
+    }
+    pt = strchr(sh,'|');
+    if ( pt!=NULL )
+	sh = pt+1;
+    if ( *sh=='\0' || strcmp(sh,"No Shortcut")==0 || strcmp(sh,"None")==0 )
+	return;
+
+    initmods();
+
+    mask = 0;
+    while ( (pt=strchr(sh,'+'))!=NULL && pt!=sh ) {	/* A '+' can also occur as the short cut char itself */
+	for ( i=0; modifiers[i].modifier!=NULL; ++i ) {
+	    if ( strncasecmp(sh,modifiers[i].modifier,pt-sh)==0 )
+	break;
+	}
+	if ( modifiers[i].modifier==NULL ) {
+	    for ( i=0; modifiers[i].alt!=NULL; ++i ) {
+		if ( strncasecmp(sh,modifiers[i].alt,pt-sh)==0 )
+	    break;
+	    }
+	}
+	if ( modifiers[i].modifier!=NULL )
+	    mask |= modifiers[i].mask;
+	else if ( sscanf( sh, "0x%x", &temp)==1 )
+	    mask |= temp;
+	else {
+	    fprintf( stderr, "Could not parse short cut: %s\n", shortcut );
+	    return;
+	}
+	sh = pt+1;
+    }
+    hk->state = mask;
+    for ( i=0; i<0x100; ++i ) {
+	if ( GDrawKeysyms[i]!=NULL && uc_strcmp(GDrawKeysyms[i],sh)==0 ) {
+	    hk->keysym = 0xff00 + i;
+	    break;
+	}
+    }
+    if ( i==0x100 ) {
+	hk->keysym = utf8_ildb((const char **) &sh);
+	if ( *sh!='\0' ) {
+	    fprintf( stderr, "Unexpected characters at end of short cut: %s\n", shortcut );
+	    return;
+	}
+    }
+    //
+    // The user really means lower case keys unless they have
+    // given the "shift" modifier too. Like: Ctl+Shft+L
+    //
+//    fprintf(stderr,"HotkeyParse(1) spec:%d hk->keysym:%d shortcut:%s\n", GK_Special, hk->keysym, shortcut );
+    if( hk->keysym < GK_Special ) {
+	hk->keysym = tolower(hk->keysym);
+	if( hk->state & ksm_shift ) {
+	    hk->keysym = toupper(hk->keysym);
+	}
+    }
+    if( hk->keysym == GDK_KEY_Tab ) {
+#ifndef __Mac
+	if( hk->state & ksm_shift ) {
+	    hk->keysym = GDK_KEY_ISO_Left_Tab;
+	}
+#endif
+    }
+    
+//    fprintf(stderr,"HotkeyParse(end) spec:%d hk->state:%d hk->keysym:%d shortcut:%s\n", GK_Special, hk->state, hk->keysym, shortcut );
+}
+    
 void GMenuItemParseShortCut(GMenuItem *mi,char *shortcut) {
     char *pt, *sh;
     int mask, temp, i;

@@ -1,3 +1,4 @@
+/* -*- coding: utf-8 -*- */
 /* Copyright (C) 2000-2012 by George Williams */
 /*
  * Redistribution and use in source and binary forms, with or without
@@ -47,7 +48,13 @@
 # include <langinfo.h>
 #endif
 
+#define GTimer GTimer_GTK
+#include <glib.h>
+#undef GTimer
+
 #define RAD2DEG	(180/3.1415926535897932)
+
+static void change_res_filename(const char *newname);
 
 extern int splash;
 extern int adjustwidth;
@@ -69,6 +76,9 @@ extern int recognizePUA;
 extern float arrowAmount;
 extern float arrowAccelFactor;
 extern float snapdistance;
+extern float snapdistancemeasuretool;
+extern int measuretoolshowhorizontolvertical;
+extern int xorrubberlines;
 extern int snaptoint;
 extern float joinsnap;
 extern char *BDFFoundry;
@@ -92,6 +102,7 @@ extern int cvvisible[2], bvvisible[3];	/* in cvpalettes.c */
 extern int maxundoes;			/* in cvundoes */
 extern int pref_mv_shift_and_arrow_skip;         /* in metricsview.c */
 extern int pref_mv_control_shift_and_arrow_skip; /* in metricsview.c */
+extern int mv_type;                              /* in metricsview.c */
 extern int prefer_cjk_encodings;	/* in parsettf */
 extern int onlycopydisplayed, copymetadata, copyttfinstr;
 extern struct cvshows CVShows;
@@ -147,9 +158,11 @@ extern int allow_utf8_glyphnames;		/* in lookupui.c */
 extern int add_char_to_name_list;		/* in charinfo.c */
 extern int clear_tt_instructions_when_needed;	/* in cvundoes.c */
 extern int export_clipboard;			/* in cvundoes.c */
+extern int prefs_ensure_correct_extension;      /* in fontview.c */
 extern int default_cv_width;			/* in charview.c */
 extern int default_cv_height;			/* in charview.c */
 extern int interpCPsOnMotion;			/* in charview.c */
+extern int DrawOpenPathsWithHighlight;          /* in charview.c */
 extern int mv_width;				/* in metricsview.c */
 extern int mv_height;				/* in metricsview.c */
 extern int bv_width;				/* in bitmapview.c */
@@ -169,6 +182,8 @@ extern int aa_pixelsize;			/* from anchorsaway.c */
 extern enum cvtools cv_b1_tool, cv_cb1_tool, cv_b2_tool, cv_cb2_tool; /* cvpalettes.c */
 extern int show_kerning_pane_in_class;		/* kernclass.c */
 extern int AutoSaveFrequency;			/* autosave.c */
+extern int UndoRedoLimitToSave; /* sfd.c */
+extern int UndoRedoLimitToLoad; /* sfd.c */
 
 extern NameList *force_names_when_opening;
 extern NameList *force_names_when_saving;
@@ -181,7 +196,7 @@ static int alwaysgenapple=false, alwaysgenopentype=false;
 static int gfc_showhidden, gfc_dirplace;
 static char *gfc_bookmarks=NULL;
 
-static int prefs_usecairo = true, prefs_usepango=true;
+static int prefs_usecairo = true;
 
 static int pointless;
 
@@ -286,11 +301,10 @@ static struct prefs_list {
 #ifndef _NO_LIBCAIRO
 	{ N_("UseCairoDrawing"), pr_bool, &prefs_usecairo, NULL, NULL, '\0', NULL, 0, N_("Use the cairo library for drawing (if available)\nThis makes for prettier (anti-aliased) but slower drawing\nThis applies to any windows created AFTER this is set.\nAlready existing windows will continue as they are.") },
 #endif
-#ifndef _NO_LIBPANGO
-	{ N_("UsePangoDrawing"), pr_bool, &prefs_usepango, NULL, NULL, '\0', NULL, 0, N_("Use the pango library for text (if available)\nThis makes for prettier and handles complex scripts.\nBut it can slow things down on older machines.\nThis applies to any windows created AFTER this is set.\nAlready existing windows will continue as they are.") },
-#endif
 	{ N_("ExportClipboard"), pr_bool, &export_clipboard, NULL, NULL, '\0', NULL, 0, N_( "If you are running an X11 clipboard manager you might want\nto turn this off. FF can put things into its internal clipboard\nwhich it cannot export to X11 (things like copying more than\none glyph in the fontview). If you have a clipboard manager\nrunning it will force these to be exported with consequent\nloss of data.") },
+	{ N_("EnsureCorrectSaveExtension"), pr_bool, &prefs_ensure_correct_extension, NULL, NULL, '\0', NULL, 0, N_( "When inputting a name in the Save or SaveAs dialogs, FontForge can ensure that the correct filename extension (SFD or SFDIR) is always used. This prevents you from accidentally naming your source file with a binary extension (such as .otf), out of habit.") },
 	{ N_("AutoSaveFrequency"), pr_int, &AutoSaveFrequency, NULL, NULL, '\0', NULL, 0, N_( "The number of seconds between autosaves. If you set this to 0 there will be no autosaves.") },
+	{ N_("UndoRedoLimitToSave"), pr_int, &UndoRedoLimitToSave, NULL, NULL, '\0', NULL, 0, N_( "The number of undo and redo operations which will be saved in sfd files.\nIf you set this to 0 undo/redo information is not saved to sfd files.\nIf set to -1 then all available undo/redo information is saved without limit.") },
 	PREFS_LIST_EMPTY
 },
   new_list[] = {
@@ -306,6 +320,7 @@ static struct prefs_list {
 	{ N_("PreserveTables"), pr_string, &SaveTablesPref, NULL, NULL, 'P', NULL, 0, N_("Enter a list of 4 letter table tags, separated by commas.\nFontForge will make a binary copy of these tables when it\nloads a True/OpenType font, and will output them (unchanged)\nwhen it generates the font. Do not include table tags which\nFontForge thinks it understands.") },
 	{ N_("SeekCharacter"), pr_unicode, &home_char, NULL, NULL, '\0', NULL, 0, N_("When fontforge opens a (non-sfd) font it will try to display this unicode character in the fontview.")},
 	{ N_("CompactOnOpen"), pr_bool, &compact_font_on_open, NULL, NULL, 'O', NULL, 0, N_("When a font is opened, should it be made compact?")},
+	{ N_("UndoRedoLimitToLoad"), pr_int, &UndoRedoLimitToLoad, NULL, NULL, '\0', NULL, 0, N_( "The number of undo and redo operations to load from sfd files.\nWith this option you can disregard undo information while loading SFD files.\nIf set to 0 then no undo/redo information is loaded.\nIf set to -1 then all available undo/redo information is loaded without limit.") },
 	PREFS_LIST_EMPTY
 },
   navigation_list[] = {
@@ -317,13 +332,17 @@ static struct prefs_list {
 	{ N_("ItalicConstrained"), pr_bool, &ItalicConstrained, NULL, NULL, '\0', NULL, 0, N_("In the Outline View, the Shift key constrains motion to be parallel to the ItalicAngle rather than constraining it to be vertical.") },
 	{ N_("ArrowMoveSize"), pr_real, &arrowAmount, NULL, NULL, '\0', NULL, 0, N_("The number of em-units by which an arrow key will move a selected point") },
 	{ N_("ArrowAccelFactor"), pr_real, &arrowAccelFactor, NULL, NULL, '\0', NULL, 0, N_("Holding down the Alt (or Meta) key will speed up arrow key motion by this factor") },
+	{ N_("DrawOpenPathsWithHighlight"), pr_bool, &DrawOpenPathsWithHighlight, NULL, NULL, '\0', NULL, 0, N_("Open paths should be drawn in a special highlight color to make them more apparent.") },
 	{ N_("InterpolateCPsOnMotion"), pr_bool, &interpCPsOnMotion, NULL, NULL, '\0', NULL, 0, N_("When moving one end point of a spline but not the other\ninterpolate the control points between the two.") },
 	{ N_("SnapDistance"), pr_real, &snapdistance, NULL, NULL, '\0', NULL, 0, N_("When the mouse pointer is within this many pixels\nof one of the various interesting features (baseline,\nwidth, grid splines, etc.) the pointer will snap\nto that feature.") },
+	{ N_("SnapDistanceMeasureTool"), pr_real, &snapdistancemeasuretool, NULL, NULL, '\0', NULL, 0, N_("When the measure tool is active and when the mouse pointer is within this many pixels\nof one of the various interesting features (baseline,\nwidth, grid splines, etc.) the pointer will snap\nto that feature.") },
+	{ N_("MeasureToolShowHorizontalVertical"), pr_bool, &measuretoolshowhorizontolvertical, NULL, NULL, '\0', NULL, 0, N_("Have the measure tool show horizontal and vertical distances on the canvas.") },
+	{ N_("XORRubberLines"), pr_bool, &xorrubberlines, NULL, NULL, '\0', NULL, 0, N_("Use XOR based rubber lines.") },
 	{ N_("SnapToInt"), pr_bool, &snaptoint, NULL, NULL, '\0', NULL, 0, N_("When the user clicks in the editing window, round the location to the nearest integers.") },
 	{ N_("JoinSnap"), pr_real, &joinsnap, NULL, NULL, '\0', NULL, 0, N_("The Edit->Join command will join points which are this close together\nA value of 0 means they must be coincident") },
 	{ N_("StopAtJoin"), pr_bool, &stop_at_join, NULL, NULL, '\0', NULL, 0, N_("When dragging points in the outline view a join may occur\n(two open contours may connect at their endpoints). When\nthis is On a join will cause FontForge to stop moving the\nselection (as if the user had released the mouse button).\nThis is handy if your fingers are inclined to wiggle a bit.") },
 	{ N_("CopyMetaData"), pr_bool, &copymetadata, NULL, NULL, '\0', NULL, 0, N_("When copying glyphs from the font view, also copy the\nglyphs' metadata (name, encoding, comment, etc).") },
-	{ N_("UndoDepth"), pr_int, &maxundoes, NULL, NULL, '\0', NULL, 0, N_("The maximum number of Undoes/Redoes stored in a glyph") },
+	{ N_("UndoDepth"), pr_int, &maxundoes, NULL, NULL, '\0', NULL, 0, N_("The maximum number of Undoes/Redoes stored in a glyph. Use -1 for infinite Undoes\n(but watch RAM consumption and use the Edit menu's Remove Undoes as needed)") },
 	{ N_("UpdateFlex"), pr_bool, &updateflex, NULL, NULL, '\0', NULL, 0, N_("Figure out flex hints after every change") },
 	{ N_("AutoKernDialog"), pr_bool, &default_autokern_dlg, NULL, NULL, '\0', NULL, 0, N_("Open AutoKern dialog for new kerning subtables") },
 	{ N_("MetricsShiftSkip"), pr_int, &pref_mv_shift_and_arrow_skip, NULL, NULL, '\0', NULL, 0, N_("Number of units to increment/decrement a table value by in the metrics window when shift is held") },
@@ -466,16 +485,14 @@ static struct prefs_list {
 	{ "FCDirPlacement", pr_int, &gfc_dirplace, NULL, NULL, '\0', NULL, 1, NULL },
 	{ "FCBookmarks", pr_string, &gfc_bookmarks, NULL, NULL, '\0', NULL, 1, NULL },
 	{ "OFLibAutomagicPreview", pr_int, &oflib_automagic_preview, NULL, NULL, '\0', NULL, 1, NULL },
-	{ "DefaultMVWidth", pr_int, &mv_width, NULL, NULL, '\0', NULL, 1, NULL },
+	{ "DefaultMVType",   pr_int, &mv_type, NULL, NULL, '\0', NULL, 1, NULL },
+	{ "DefaultMVWidth",  pr_int, &mv_width, NULL, NULL, '\0', NULL, 1, NULL },
 	{ "DefaultMVHeight", pr_int, &mv_height, NULL, NULL, '\0', NULL, 1, NULL },
 	{ "DefaultBVWidth", pr_int, &bv_width, NULL, NULL, '\0', NULL, 1, NULL },
 	{ "DefaultBVHeight", pr_int, &bv_height, NULL, NULL, '\0', NULL, 1, NULL },
 	{ "AnchorControlPixelSize", pr_int, &aa_pixelsize, NULL, NULL, '\0', NULL, 1, NULL },
 #ifdef _NO_LIBCAIRO
 	{ "UseCairoDrawing", pr_bool, &prefs_usecairo, NULL, NULL, '\0', NULL, 0, N_("Use the cairo library for drawing (if available)\nThis makes for prettier (anti-aliased) but slower drawing\nThis applies to any windows created AFTER this is set.\nAlready existing windows will continue as they are.") },
-#endif
-#ifdef _NO_LIBPANGO
-	{ "UsePangoDrawing", pr_bool, &prefs_usepango, NULL, NULL, '\0', NULL, 0, N_("Use the cairo library for drawing (if available)\nThis makes for prettier (anti-aliased) but slower drawing\nThis applies to any windows created AFTER this is set.\nAlready existing windows will continue as they are.") },
 #endif
 	{ "CV_B1Tool", pr_int, (int *) &cv_b1_tool, NULL, NULL, '\0', NULL, 1, NULL },
 	{ "CV_CB1Tool", pr_int, (int *) &cv_cb1_tool, NULL, NULL, '\0', NULL, 1, NULL },
@@ -986,8 +1003,8 @@ static void DefaultXUID(void) {
 	r1 = rand()&0x3ff;
     } while ( r1==0 );		/* I reserve "0" for me! */
     gettimeofday(&tv,NULL);
-    srandom(tv.tv_usec+1);
-    r2 = random();
+    g_random_set_seed(tv.tv_usec+1);
+    r2 = g_random_int();
     sprintf( buffer, "1021 %d %d", r1, r2 );
     free(xuid);
     xuid = copy(buffer);
@@ -995,15 +1012,7 @@ static void DefaultXUID(void) {
 
 static void DefaultHelp(void) {
     if ( helpdir==NULL ) {
-#if defined(__MINGW32__)
-	helpdir = copy("");
-#elif defined(DOCDIR)
-	helpdir = copy(DOCDIR "/");
-#elif defined(SHAREDIR)
-	helpdir = copy(SHAREDIR "/doc/fontforge/");
-#else
-	helpdir = copy("/usr/local/share/doc/fontforge/");
-#endif
+	helpdir = copy(getHelpDir());
     }
 }
 
@@ -1150,6 +1159,20 @@ static void PrefsUI_LoadPrefs(void) {
 	}
 	fclose(p);
     }
+
+    //
+    // If the user has no theme set, then use the default
+    //
+    if ( !xdefs_filename )
+    {
+	fprintf(stderr,"no xdefs_filename!\n");
+	char path[PATH_MAX];
+	snprintf(path, PATH_MAX, "%s/%s", getPixmapDir(), "resources" );
+	fprintf(stderr,"trying default theme:%s\n", path );
+	if(GFileExists(path)) {
+	    change_res_filename( path );
+	}
+    }
     if ( xdefs_filename!=NULL )
 	GResourceAddResourceFile(xdefs_filename,GResourceProgramName,true);
     if ( othersubrsfile!=NULL && ReadOtherSubrsFile(othersubrsfile)<=0 )
@@ -1161,7 +1184,6 @@ static void PrefsUI_LoadPrefs(void) {
     LoadNamelistDir(NULL);
     ProcessFileChooserPrefs();
     GDrawEnableCairo( prefs_usecairo );
-    GDrawEnablePango( prefs_usepango );
 }
 
 static void PrefsUI_SavePrefs(int not_if_script) {
@@ -1803,7 +1825,6 @@ return( true );
 	if ( othersubrsfile!=NULL && ReadOtherSubrsFile(othersubrsfile)<=0 )
 	    fprintf( stderr, "Failed to read OtherSubrs from %s\n", othersubrsfile );
 	GDrawEnableCairo(prefs_usecairo);
-	GDrawEnablePango(prefs_usepango);
     }
 return( true );
 }
@@ -1899,7 +1920,7 @@ void DoPrefs(void) {
     wattrs.cursor = ct_pointer;
     wattrs.utf8_window_title = _("Preferences");
     pos.x = pos.y = 0;
-    pos.width = GGadgetScale(GDrawPointsToPixels(NULL,290));
+    pos.width = GGadgetScale(GDrawPointsToPixels(NULL,350));
     pos.height = GDrawPointsToPixels(NULL,line_max*26+69);
     gw = GDrawCreateTopWindow(NULL,&pos,e_h,&p,&wattrs);
 
@@ -2376,7 +2397,7 @@ void DoPrefs(void) {
     rq.utf8_family_name = MONO_UI_FAMILIES;
     rq.point_size = 12;
     rq.weight = 400;
-    font = GDrawInstanciateFont(GDrawGetDisplayOfWindow(gw),&rq);
+    font = GDrawInstanciateFont(gw,&rq);
     GGadgetSetFont(mfgcd[0].ret,font);
     GGadgetSetFont(msgcd[0].ret,font);
     GHVBoxFitWindow(mboxes[0].ret);
@@ -2517,6 +2538,12 @@ struct prefs_list pointer_dialog_list[] = {
     PREFS_LIST_EMPTY
 };
 
+struct prefs_list ruler_dialog_list[] = {
+	{ N_("SnapDistanceMeasureTool"), pr_real, &snapdistancemeasuretool, NULL, NULL, '\0', NULL, 0, N_("When the measure tool is active and when the mouse pointer is within this many pixels\nof one of the various interesting features (baseline,\nwidth, grid splines, etc.) the pointer will snap\nto that feature.") },
+	{ N_("MeasureToolShowHorizontalVertical"), pr_bool, &measuretoolshowhorizontolvertical, NULL, NULL, '\0', NULL, 0, N_("Have the measure tool show horizontal and vertical distances on the canvas.") },
+    PREFS_LIST_EMPTY
+};
+
 static int PrefsSubSet_Ok(GGadget *g, GEvent *e) {
     GWindow gw = GGadgetGetWindow(g);
     struct pref_data *p = GDrawGetUserData(GGadgetGetWindow(g));
@@ -2586,17 +2613,17 @@ static int PrefsSubSet_Ok(GGadget *g, GEvent *e) {
     return( true );
 }
 
-void PrefsSubSetDlg(CharView *cv,char* windowTitle,struct prefs_list* plist) {
+static void PrefsSubSetDlg(CharView *cv,char* windowTitle,struct prefs_list* plist) {
     struct prefs_list* pl = plist;
     GRect pos;
     GWindow gw;
     GWindowAttrs wattrs;
     GGadgetCreateData *pgcd, gcd[20], sgcd[45], mgcd[3], mfgcd[9], msgcd[9];
     GGadgetCreateData mfboxes[3], *mfarray[14];
-    GGadgetCreateData mpboxes[3], *mparray[14];
-    GGadgetCreateData sboxes[2], *sarray[50];
+    GGadgetCreateData mpboxes[3];
+    GGadgetCreateData sboxes[2];
     GGadgetCreateData mboxes[3], mboxes2[5], *varray[5], *harray[8];
-    GTextInfo *plabel, **list, label[20], slabel[45], *plabels[TOPICS+5], mflabels[9], mslabels[9];
+    GTextInfo *plabel, label[20], slabel[45], mflabels[9], mslabels[9];
     GTabInfo aspects[TOPICS+5], subaspects[3];
     GGadgetCreateData **hvarray, boxes[2*TOPICS];
     struct pref_data p;
@@ -2883,5 +2910,9 @@ void PrefsSubSetDlg(CharView *cv,char* windowTitle,struct prefs_list* plist) {
 
 void PointerDlg(CharView *cv) {
     PrefsSubSetDlg( cv, _("Arrow Options"), pointer_dialog_list );
+}
+
+void RulerDlg(CharView *cv) {
+    PrefsSubSetDlg( cv, _("Ruler Options"), ruler_dialog_list );
 }
 

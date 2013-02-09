@@ -258,7 +258,7 @@ static struct prefs_list {
 	{ N_("JoinSnap"), pr_real, &joinsnap, NULL, NULL, '\0', NULL, 0, N_("The Edit->Join command will join points which are this close together\nA value of 0 means they must be coincident") },
 	{ N_("StopAtJoin"), pr_bool, &stop_at_join, NULL, NULL, '\0', NULL, 0, N_("When dragging points in the outline view a join may occur\n(two open contours may connect at their endpoints). When\nthis is On a join will cause FontForge to stop moving the\nselection (as if the user had released the mouse button).\nThis is handy if your fingers are inclined to wiggle a bit.") },
 	{ N_("CopyMetaData"), pr_bool, &copymetadata, NULL, NULL, '\0', NULL, 0, N_("When copying glyphs from the font view, also copy the\nglyphs' metadata (name, encoding, comment, etc).") },
-	{ N_("UndoDepth"), pr_int, &maxundoes, NULL, NULL, '\0', NULL, 0, N_("The maximum number of Undoes/Redoes stored in a glyph") },
+	{ N_("UndoDepth"), pr_int, &maxundoes, NULL, NULL, '\0', NULL, 0, N_("The maximum number of Undoes/Redoes stored in a glyph. Use -1 for infinite Undoes\n(but watch RAM consumption and use the Edit menu's Remove Undoes as needed)") },
 	{ N_("UpdateFlex"), pr_bool, &updateflex, NULL, NULL, '\0', NULL, 0, N_("Figure out flex hints after every change") },
 	{ NULL }
 },
@@ -746,8 +746,8 @@ static void DefaultXUID(void) {
 	r1 = rand()&0x3ff;
     } while ( r1==0 );		/* I reserve "0" for me! */
     gettimeofday(&tv,NULL);
-    srandom(tv.tv_usec+1);
-    r2 = random();
+    g_random_set_seed(tv.tv_usec+1);
+    r2 = g_random_int();
     sprintf( buffer, "1021 %d %d", r1, r2 );
     free(xuid);
     xuid = copy(buffer);

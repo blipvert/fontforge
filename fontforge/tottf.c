@@ -4742,7 +4742,7 @@ static FILE *NeedsVariationSequenceTable(SplineFont *sf,int *vslen,EncMap *map) 
     struct altuni *altuni, *au;
     uint32 vsbuf[512], *vses = vsbuf;
     FILE *format14;
-    uint32 *avail = galloc(65536*sizeof(uint32));
+    uint32 *avail = NULL;
     enum vs_type {vs_default=(1<<24), vs_nondefault=(2<<24) };
     SplineChar *sc;
     uint32 here;
@@ -6190,7 +6190,7 @@ int _WriteTTFFont(FILE *ttf,SplineFont *sf,enum fontformat format,
 
     if ( sf->subfontcnt==0 ) {
 	anyglyphs = false;
-	for ( i=sf->glyphcnt-1; i>0 ; --i ) {
+	for ( i=sf->glyphcnt-1; i>=0 ; --i ) {
 	    if ( SCWorthOutputting(sf->glyphs[i])) {
 		anyglyphs = true;
 		if ( sf->glyphs[i]->unicodeenc!=-1 )
@@ -6201,7 +6201,7 @@ int _WriteTTFFont(FILE *ttf,SplineFont *sf,enum fontformat format,
 	    ff_post_error(_("No Encoded Glyphs"),_("Warning: Font contained no glyphs"));
 	}
 	if ( format!=ff_ttfsym && !(flags&ttf_flag_symbol) && !sf->internal_temp ) {
-	    if ( i==0 && anyglyphs ) {
+	    if ( i<0 && anyglyphs ) {
 		if ( map->enccount<=256 ) {
 		    char *buts[3];
 		    buts[0] = _("_Yes"); buts[1] = _("_No"); buts[2] = NULL;

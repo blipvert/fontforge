@@ -1,13 +1,11 @@
 # Makefile for OpenVMS
 # Date : 16 February 2011
 
-CFLAGS=/nowarn/incl=([],[-.inc])/name=(as_is,short)/define=("HAVE_CONFIG_H=1")
-
 fontforge_LIBOBJECTS = asmfpst.obj,autohint.obj,autosave.obj,autotrace.obj,autowidth.obj,\
  bezctx_ff.obj,bitmapchar.obj,bitmapcontrol.obj,bvedit.obj,clipnoui.obj,crctab.obj,\
  cvexport.obj,cvimages.obj,cvundoes.obj,dumpbdf.obj,dumppfa.obj,effects.obj,encoding.obj
 
-fontforge_LIBOBJECTS1=featurefile.obj,fontviewbase.obj,freetype.obj,fvcomposite.obj,fvfonts.obj,fvimportbdf.obj,\
+fontforge_LIBOBJECTS1=featurefile.obj,flaglist.obj,fontviewbase.obj,freetype.obj,fvcomposite.obj,fvfonts.obj,fvimportbdf.obj,\
  fvmetrics.obj,glyphcomp.obj,http.obj,ikarus.obj,lookups.obj,macbinary.obj
 
 fontforge_LIBOBJECTS2=macenc.obj,mathconstants.obj,mm.obj,namelist.obj,nonlineartrans.obj,noprefs.obj,nouiutil.obj
@@ -224,6 +222,7 @@ ofl.obj : ofl.c
 lookups.obj : lookups.c
 sfd1.obj : sfd1.c
 python.obj : python.c
+flaglist.obj : flaglist.c
 featurefile.obj : featurefile.c
 math.obj : math.c
 nowakowskittfinstr.obj : nowakowskittfinstr.c
