@@ -42,6 +42,8 @@ extern int _GScrollBar_Width;
 #endif
 #include "dlist.h"
 
+#include "gutils/prefs.h"
+
 /* Barry wants to be able to redefine menu bindings only in the charview (I think) */
 /*  the menu parser will first check for something like "CV*Open|Ctl+O", and */
 /*  if that fails will strip off "CV*" and check for "Open|Ctl+O" */
@@ -52,7 +54,6 @@ extern void UndoesFreeButRetainFirstN( Undoes** undopp, int retainAmount );
 
 
 int ItalicConstrained=true;
-int cv_auto_goto = false;
 float arrowAmount=1;
 float arrowAccelFactor=10.;
 float snapdistance=3.5;
@@ -1160,19 +1161,31 @@ void CVDrawSplineSet(CharView *cv, GWindow pixmap, SplinePointList *set,
     CVDrawSplineSetSpecialized( cv, pixmap, set, fg, dopoints, clip, sfm_stroke );
 }
 
+
 void CVDrawSplineSetOutlineOnly(CharView *cv, GWindow pixmap, SplinePointList *set,
 				Color fg, int dopoints, DRect *clip, enum outlinesfm_flags strokeFillMode ) {
     SplinePointList *spl;
     int currentSplineCounter = 0;
+    int activelayer = CVLayer(&cv->b);
 
     if( strokeFillMode == sfm_fill ) {
 	GDrawFillRuleSetWinding(pixmap);
     }
+    
     for ( spl = set; spl!=NULL; spl = spl->next ) {
 
 	Color fc  = spl->is_clip_path ? clippathcol : fg;
-	if ( DrawOpenPathsWithHighlight
-	     && cv->b.drawmode==dm_fore
+	/**
+	 * Only make the outline red if this is not a grid layer
+	 * and we want to highlight open paths
+	 * and the activelayer is sane
+	 * and the activelayer contains the given splinepointlist
+	 * and the path is open
+	 */
+	if ( cv->b.drawmode!=dm_grid
+	     && DrawOpenPathsWithHighlight
+	     && activelayer < cv->b.sc->layer_cnt
+	     && SplinePointListContains( cv->b.sc->layers[activelayer].splines, spl )
 	     && spl->first
 	     && spl->first->prev==NULL )
 	{
@@ -3253,6 +3266,7 @@ static void CVCharUp(CharView *cv, GEvent *event ) {
 	update_spacebar_hand_tool(cv);
     }
 
+//    printf("CVCharUp() ag:%d key:%d\n", cv_auto_goto, event->u.chr.keysym );
     if( !cv_auto_goto )
     {
 	if( event->u.chr.keysym=='`' ) {
@@ -10761,6 +10775,7 @@ static void _CharViewCreate(CharView *cv, SplineChar *sc, FontView *fv,int enc) 
     wattrs.event_masks = -1;
     wattrs.cursor = ct_mypointer;
     cv->v = GWidgetCreateSubWindow(cv->gw,&pos,v_e_h,cv,&wattrs);
+    GDrawSetWindowTypeName(cv->v, "CharView");
 
     if ( GDrawRequestDeviceEvents(cv->v,input_em_cnt,input_em)>0 ) {
 	/* Success! They've got a wacom tablet */

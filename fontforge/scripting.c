@@ -4515,7 +4515,9 @@ static ItalicInfo default_ii = {
 };
 
 static void bItalic(Context *c) {
-    if ( c->a.argc>3 )
+    double pct = 1.0;
+    
+    if ( c->a.argc>8 )
 	ScriptError( c, "Wrong number of arguments");
 
     if ( c->a.argc>1) {
@@ -4524,16 +4526,68 @@ static void bItalic(Context *c) {
 	else if ( c->a.vals[1].type==v_int )
 	    default_ii.italic_angle = c->a.vals[1].u.ival;
 	else
-	    ScriptError(c,"Bad argument type in Italic");
+	    ScriptError(c,"Bad argument 1 type in Italic");
     }
     if ( c->a.argc>2) {
-	if ( c->a.vals[1].type==v_real )
-	    default_ii.xheight_percent = c->a.vals[1].u.fval;
-	else if ( c->a.vals[1].type==v_int )
-	    default_ii.xheight_percent = c->a.vals[1].u.ival;
+	if ( c->a.vals[2].type==v_real )
+	    default_ii.xheight_percent = c->a.vals[2].u.fval;
+	else if ( c->a.vals[2].type==v_int )
+	    default_ii.xheight_percent = c->a.vals[2].u.ival;
 	else
-	    ScriptError(c,"Bad argument type in Italic");
+	    ScriptError(c,"Bad argument 2 type in Italic");
     }
+    if ( c->a.argc>3) {
+	if ( c->a.vals[3].type==v_real )
+	    pct = c->a.vals[3].u.fval;
+	else if ( c->a.vals[3].type==v_int )
+	    pct = c->a.vals[3].u.ival;
+	else
+	    ScriptError(c,"Bad argument 3 type in Italic");
+	default_ii.lc.lsb_percent = default_ii.lc.rsb_percent = 
+	    default_ii.uc.lsb_percent = default_ii.uc.rsb_percent = 
+	    default_ii.neither.lsb_percent =
+	    default_ii.neither.rsb_percent = pct;
+    }    
+    if ( c->a.argc>4) {
+	if ( c->a.vals[4].type==v_real )
+	    pct = c->a.vals[4].u.fval;
+	else if ( c->a.vals[4].type==v_int )
+	    pct = c->a.vals[4].u.ival;
+	else
+	    ScriptError(c,"Bad argument 4 type in Italic");
+	default_ii.lc.stem_percent =
+	    default_ii.uc.stem_percent =
+	    default_ii.neither.stem_percent = pct;
+    }    
+    if ( c->a.argc>5) {
+	if ( c->a.vals[5].type==v_real )
+	    pct = c->a.vals[5].u.fval;
+	else if ( c->a.vals[5].type==v_int )
+	    pct = c->a.vals[5].u.ival;
+	else
+	    ScriptError(c,"Bad argument 5 type in Italic");
+	default_ii.lc.counter_percent =
+	    default_ii.uc.counter_percent =
+	    default_ii.neither.counter_percent = pct;
+    }    
+    if ( c->a.argc>6) {
+	if ( c->a.vals[6].type==v_real )
+	    pct = c->a.vals[6].u.fval;
+	else if ( c->a.vals[6].type==v_int )
+	    pct = c->a.vals[6].u.ival;
+	else
+	    ScriptError(c,"Bad argument 6 type in Italic");
+	default_ii.lc.stem_percent = pct;
+    }    
+    if ( c->a.argc>7) {
+	if ( c->a.vals[7].type==v_real )
+	    pct = c->a.vals[7].u.fval;
+	else if ( c->a.vals[7].type==v_int )
+	    pct = c->a.vals[7].u.ival;
+	else
+	    ScriptError(c,"Bad argument 7 type in Italic");
+	default_ii.lc.counter_percent = pct;
+    }    
     MakeItalic(c->curfv,NULL,&default_ii);
 }
 
@@ -4560,23 +4614,27 @@ static void bChangeWeight(Context *c) {
 }
 
 static void bSmallCaps(Context *c) {
-    struct smallcaps small;
-    struct genericchange genchange;
+    struct smallcaps small = {};
+    struct position_maps maps[2] = {{ .cur_width = -1 }, { .cur_width = 1 }};
+    struct genericchange genchange = {
+	.stem_height_scale = 0.93, .stem_width_scale = 0.93,
+	.hcounter_scale = 0.66,	.lsb_scale = 0.66, .rsb_scale = 0.66,
+	.v_scale = 0.675,
+	.gc = gc_smallcaps,
+	.extension_for_letters = "sc",
+	.extension_for_symbols = "taboldstyle",
+	.use_vert_mapping = 1,
+	.dstem_control = 1,
+	.m = { .cnt = 2, .maps = maps },
+	.small = &small
+    };
 
     if ( c->a.argc>1 )
 	ScriptError( c, "Wrong number of arguments");
     SmallCapsFindConstants(&small,c->curfv->sf,c->curfv->active_layer);
-    memset(&genchange,0,sizeof(genchange));
-    genchange.small = &small;
-    genchange.gc = gc_smallcaps;
-    genchange.extension_for_letters = "sc";
-    genchange.extension_for_symbols = "taboldstyle";
 
-    genchange.stem_width_scale  = small.lc_stem_width / small.uc_stem_width;
-    genchange.stem_height_scale = genchange.stem_width_scale;
-    genchange.v_scale           = small.xheight / small.capheight;
-    genchange.hcounter_scale    = genchange.v_scale;
-    genchange.lsb_scale = genchange.rsb_scale = genchange.v_scale;
+    maps[1].current = small.capheight;
+    maps[1].desired = small.scheight;
 
     FVAddSmallCaps(c->curfv,&genchange);
 }
