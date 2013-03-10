@@ -1146,7 +1146,12 @@ static void SFDDumpRefs(FILE *sfd,RefChar *refs, char *name,EncMap *map, int *ne
 	fprintf(sfd, "Refer: %d %d %c %g %g %g %g %g %g %d",
 		    newgids!=NULL ? newgids[ref->sc->orig_pos]:ref->sc->orig_pos,
 		    ref->sc->unicodeenc,
-		    ref->selected?'S':'N',
+#ifdef _GRATUITOUS_DIFFS
+		    ref->selected
+#else
+		    0
+#endif
+		    ?'S':'N',
 		    (double) ref->transform[0], (double) ref->transform[1], (double) ref->transform[2],
 		    (double) ref->transform[3], (double) ref->transform[4], (double) ref->transform[5],
 		    ref->use_my_metrics|(ref->round_translation_to_grid<<1)|
@@ -1448,7 +1453,12 @@ static void SFDDumpChar(FILE *sfd,SplineChar *sc,EncMap *map,int *newgids,int to
 		sc->changedsincelasthinted?"H":"",
 		sc->manualhints?"M":"",
 		sc->widthset?"W":"",
-		sc->views!=NULL?"O":"",
+#ifdef _GRATUITOUS_DIFFS
+		sc->views!=NULL
+#else
+		0
+#endif
+		?"O":"",
 		sc->instructions_out_of_date?"I":"");
     if ( sc->tex_height!=TEX_UNDEF || sc->tex_depth!=TEX_UNDEF )
 	fprintf( sfd, "TeX: %d %d\n", sc->tex_height, sc->tex_depth );
@@ -1478,6 +1488,7 @@ static void SFDDumpChar(FILE *sfd,SplineChar *sc,EncMap *map,int *newgids,int to
     SFDDumpAnchorPoints(sfd,sc->anchor);
     fprintf( sfd, "LayerCount: %d\n", sc->layer_cnt );
     for ( i=0; i<sc->layer_cnt; ++i ) {
+#ifdef _GRATUITOUS_DIFFS
         if( saveUndoes ) {
             if( sc->layers[i].undoes || sc->layers[i].redoes ) {
                 fprintf(sfd, "UndoRedoHistory\n" );
@@ -1513,7 +1524,7 @@ static void SFDDumpChar(FILE *sfd,SplineChar *sc,EncMap *map,int *newgids,int to
                 fprintf(sfd, "EndUndoRedoHistory\n" );
             }
         }
-	
+#endif
 	if ( sc->parent->multilayer ) {
 	    fprintf(sfd, "Layer: %d  %d %d %d  #%06x %g  #%06x %g %g %s %s [%g %g %g %g] [",
 		    i, sc->layers[i].dofill, sc->layers[i].dostroke, sc->layers[i].fillfirst,
@@ -2225,6 +2236,9 @@ static int SFD_Dump(FILE *sfd,SplineFont *sf,EncMap *map,EncMap *normal,
     fprintf(sfd, "OS2Version: %d\n", sf->os2_version );
     fprintf(sfd, "OS2_WeightWidthSlopeOnly: %d\n", sf->weight_width_slope_only );
     fprintf(sfd, "OS2_UseTypoMetrics: %d\n", sf->use_typo_metrics );
+#ifndef _GRATUITOUS_DIFFS
+    sf->modificationtime = sf->creationtime;
+#endif
 #ifdef _HAS_LONGLONG
     fprintf(sfd, "CreationTime: %lld\n", sf->creationtime );
     fprintf(sfd, "ModificationTime: %lld\n", sf->modificationtime );
@@ -2560,8 +2574,10 @@ static int SFD_Dump(FILE *sfd,SplineFont *sf,EncMap *map,EncMap *normal,
 	fprintf(sfd, "CIDVersion: %g\n", sf->cidversion );	/* This is a number whereas "version" is a string */
     } else
 	SFDDumpEncoding(sfd,map->enc,"Encoding");
+#ifdef _GRATUITOUS_DIFFS
     if ( normal!=NULL )
 	fprintf(sfd, "Compacted: 1\n" );
+#endif
     fprintf( sfd, "UnicodeInterp: %s\n", unicode_interp_names[sf->uni_interp]);
     fprintf( sfd, "NameList: %s\n", sf->for_new_glyphs->title );
 
@@ -2573,16 +2589,19 @@ static int SFD_Dump(FILE *sfd,SplineFont *sf,EncMap *map,EncMap *normal,
 	for ( remap = map->remap; remap->infont!=-1; ++remap )
 	    fprintf(sfd, "Remap: %x %x %d\n", (int) remap->firstenc, (int) remap->lastenc, (int) remap->infont );
     }
+#ifdef _GRATUITOUS_DIFFS
     if ( sf->display_size!=0 )
 	fprintf( sfd, "DisplaySize: %d\n", sf->display_size );
     if ( sf->display_layer!=ly_fore )
 	fprintf( sfd, "DisplayLayer: %d\n", sf->display_layer );
+#endif
     fprintf( sfd, "AntiAlias: %d\n", sf->display_antialias );
     fprintf( sfd, "FitToEm: %d\n", sf->display_bbsized );
     if ( sf->extrema_bound!=0 )
 	fprintf( sfd, "ExtremaBound: %d\n", sf->extrema_bound );
     if ( sf->width_separation!=0 )
 	fprintf( sfd, "WidthSeparation: %d\n", sf->width_separation );
+#ifdef _GRATUITOUS_DIFFS
     {
 	int rc, cc, te;
 	if ( (te = FVWinInfo(sf->fv,&cc,&rc))!= -1 )
@@ -2591,6 +2610,7 @@ static int SFD_Dump(FILE *sfd,SplineFont *sf,EncMap *map,EncMap *normal,
 	    fprintf( sfd, "WinInfo: %d %d %d\n", sf->top_enc, sf->desired_col_cnt,
 		sf->desired_row_cnt);
     }
+#endif
     if ( sf->onlybitmaps!=0 )
 	fprintf( sfd, "OnlyBitmaps: %d\n", sf->onlybitmaps );
     if ( sf->private!=NULL )
