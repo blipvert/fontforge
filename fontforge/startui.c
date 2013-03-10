@@ -43,6 +43,11 @@
 #include "../gdraw/hotkeys.h"
 #include "gutils/prefs.h"
 
+#define GTimer GTimer_GTK
+#include <glib.h>
+#include <glib-object.h>
+#undef GTimer
+
 #ifdef __Mac
 extern void setup_cocoa_app();
 #endif
@@ -782,9 +787,9 @@ int fontforge_main( int argc, char **argv ) {
     int ds, ld;
     int openflags=0;
     int doopen=0, quit_request=0;
-#if defined(__Mac)
     int local_x;
-#endif
+
+    g_type_init();
 
     fprintf( stderr, "Copyright (c) 2000-2012 by George Williams.\n Executable based on sources from %s"
 	    "-ML"
@@ -854,7 +859,7 @@ int fontforge_main( int argc, char **argv ) {
 	}
     }
 #endif
-
+    
     FF_SetUiInterface(&gdraw_ui_interface);
     FF_SetPrefsInterface(&gdraw_prefs_interface);
     FF_SetSCInterface(&gdraw_sc_interface);
@@ -1032,7 +1037,7 @@ int fontforge_main( int argc, char **argv ) {
 	    dohelp();
 	else if ( strcmp(pt,"-help")==0 )
 	    dousage();
-	else if ( strcmp(pt,"-version")==0 )
+	else if ( strcmp(pt,"-version")==0 || strcmp(pt,"-v")==0 || strcmp(pt,"-V")==0 )
 	    doversion(source_version_str);
 	else if ( strcmp(pt,"-quit")==0 )
 	    quit_request = true;

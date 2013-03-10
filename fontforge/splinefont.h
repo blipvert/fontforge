@@ -2708,8 +2708,13 @@ extern Encoding *_FindOrMakeEncoding(const char *name,int make_it);
 extern Encoding *FindOrMakeEncoding(const char *name);
 extern void SFDDumpMacFeat(FILE *sfd,MacFeat *mf);
 extern MacFeat *SFDParseMacFeatures(FILE *sfd, char *tok);
+extern int SFDDoesAnyBackupExist(char* filename);
 extern int SFDWrite(char *filename,SplineFont *sf,EncMap *map,EncMap *normal, int todir);
 extern int SFDWriteBak(SplineFont *sf,EncMap *map,EncMap *normal);
+extern int SFDWriteBakExtended(char* locfilename,
+			       SplineFont *sf,EncMap *map,EncMap *normal,
+			       int s2d,
+			       int localPrefMaxBackupsToKeep );
 extern SplineFont *SFDRead(char *filename);
 extern SplineFont *_SFDRead(char *filename,FILE *sfd);
 extern SplineFont *SFDirRead(char *filename);
@@ -3191,7 +3196,7 @@ extern void SCClearAll(SplineChar *sc,int layer);
 extern void BCClearAll(BDFChar *bc);
 
 #if !defined(_NO_PYTHON)
-extern void FontForge_PythonInit(void);
+extern void FontForge_InitializeEmbeddedPython(void);
 extern void PyFF_ErrorString(const char *msg,const char *str);
 extern void PyFF_ErrorF3(const char *frmt, const char *str, int size, int depth);
 extern void PyFF_Stdin(void);
@@ -3206,8 +3211,6 @@ extern char *PyFF_PickleMeToString(void *pydata);
 extern void *PyFF_UnPickleMeToObjects(char *str);
 struct _object;		/* Python Object */
 extern void PyFF_CallDictFunc(struct _object *dict,char *key,char *argtypes, ... );
-extern void ff_init(void);
-extern struct _object *ff_init_py3(int);
 #endif
 extern void doinitFontForgeMain(void);
 

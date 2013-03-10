@@ -45,8 +45,8 @@ Gdraw.GButton.Box.Padding: 1
 Gdraw.GButton.Box.Radius: 3
 Gdraw.GButton.Font: 400 10pt Cantarell,sans,clearlyu,unifont
 Gdraw.GButton.ShiftOnPress: False
-Gdraw.GCancelButton.Box.GradientStartCol: #ebb4a0
-Gdraw.GCancelButton.Box.NormalBackground: #f27458
+Gdraw.GCancelButton.Box.GradientStartCol: #ffffff
+Gdraw.GCancelButton.Box.NormalBackground: #ffffff
 Gdraw.GCheckBox.Box.BorderType: none
 Gdraw.GCheckBox.Box.Padding: 0
 Gdraw.GCheckBox.Font: 400 10pt Cantarell,sans,clearlyu,unifont
@@ -87,8 +87,8 @@ Gdraw.GDefaultButton.Box.BorderBrightest: #598ec6
 Gdraw.GDefaultButton.Box.BorderDarker: #598ec6
 Gdraw.GDefaultButton.Box.BorderDarkest: #598ec6
 Gdraw.GDefaultButton.Box.BorderOuterCol: #bcd2ea
-Gdraw.GDefaultButton.Box.GradientStartCol: #b7ceeb
-Gdraw.GDefaultButton.Box.NormalBackground: #64a4f2
+Gdraw.GDefaultButton.Box.GradientStartCol: #ffffff
+Gdraw.GDefaultButton.Box.NormalBackground: #ffffff
 Gdraw.GDrawable.Box.BorderType: none
 Gdraw.GDrawable.Box.BorderWidth: 0
 Gdraw.GDrawable.Box.Padding: 0
@@ -175,13 +175,14 @@ Gdraw.GMatrixEdit.TitleBG: #a09f9e
 Gdraw.GMatrixEdit.TitleDivider: #757371
 Gdraw.GMatrixEdit.TitleFG: #222222
 Gdraw.GMatrixEdit.TitleFont: 700 8pt dejavu sans
-Gdraw.GMenu.Box.BorderOuter: False
+Gdraw.GMenu.Box.BorderOuter: True
+Gdraw.GMenu.Box.BorderOuterCol: #dedede
 Gdraw.GMenu.Box.BorderShape: rect
 Gdraw.GMenu.Box.NormalBackground: #ffffff
 Gdraw.GMenu.Box.Padding: 3
 Gdraw.GMenu.Font: 400 10pt Cantarell,sans,clearlyu,unifont
 Gdraw.GMenu.MacIcons: False
-Gdraw.GMenuBar.Box.ActiveBorder: #ffffff
+Gdraw.GMenuBar.Box.ActiveBorder: #ededed
 Gdraw.GMenuBar.Box.BorderInner: False
 Gdraw.GMenuBar.Box.BorderInnerCol: #edeceb
 Gdraw.GMenuBar.Box.BorderOuter: False
@@ -349,7 +350,7 @@ fontforge.FontView.SerifFamily: dejavu serif,times,caslon,serif,clearlyu,unifont
 fontforge.MetricsView.AdvanceWidthColor: #80827c
 fontforge.MetricsView.ItalicAdvanceColor: #80827c
 fontforge.MetricsView.KernLineColor: #3d7905
-fontforge.MetricsView.SelectedGlyphColor: #8f918d
+fontforge.MetricsView.SelectedGlyphColor: #2b2b2b
 fontforge.MetricsView.SideBearingLineColor: #12376c
 fontforge.View.Background: #ffffff
 Gdraw.GVisibilityBoxOn.Image:check_on.png
