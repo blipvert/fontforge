@@ -6021,8 +6021,10 @@ void SFDFixupRefs(SplineFont *sf) {
 			rprev = refs;
 			if ( refs->use_my_metrics ) {
 			    if ( sc->width != refs->sc->width ) {
+#ifdef _STFU_AND_FIX_THE_FONT
 				LogError(_("Bad sfd file. Glyph %s has width %d even though it should be\n  bound to the width of %s which is %d.\n"),
 					sc->name, sc->width, refs->sc->name, refs->sc->width );
+#endif
 				sc->width = refs->sc->width;
 			    }
 			}
