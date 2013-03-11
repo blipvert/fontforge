@@ -4658,78 +4658,144 @@ static ItalicInfo default_ii = {
 
 static void bItalic(Context *c) {
     double pct = 1.0;
-    
-    if ( c->a.argc>8 )
+    int i;
+
+    if ( c->a.argc>10 )
 	ScriptError( c, "Wrong number of arguments");
 
-    if ( c->a.argc>1) {
-	if ( c->a.vals[1].type==v_real )
-	    default_ii.italic_angle = c->a.vals[1].u.fval;
-	else if ( c->a.vals[1].type==v_int )
-	    default_ii.italic_angle = c->a.vals[1].u.ival;
-	else
-	    ScriptError(c,"Bad argument 1 type in Italic");
+    for (i = 1; i < c->a.argc; ++i) {
+	switch (i) {
+	case 1:
+	    /* Argument 1: italic angle */
+	    if ( c->a.vals[1].type==v_real )
+		default_ii.italic_angle = c->a.vals[1].u.fval;
+	    else if ( c->a.vals[1].type==v_int )
+		default_ii.italic_angle = c->a.vals[1].u.ival;
+	    else
+		break;
+	    continue;
+
+	case 2:
+	    /* Argument 2: xheight percentage */
+	    if ( c->a.vals[i].type==v_real )
+		default_ii.xheight_percent = c->a.vals[i].u.fval;
+	    else if ( c->a.vals[i].type==v_int )
+		default_ii.xheight_percent = c->a.vals[i].u.ival;
+	    else
+		break;
+	    continue;
+
+	case 3:
+	    /* Argument 3: flags */
+	    if ( c->a.vals[i].type==v_int ) {
+		int flags = c->a.vals[i].u.ival;
+		if (flags >= 0) {
+		    default_ii.transform_bottom_serifs = (flags & 0x0001) ? 1 : 0;
+		    default_ii.transform_top_xh_serifs = (flags & 0x0002) ? 1 : 0;
+		    default_ii.transform_top_as_serifs = (flags & 0x0004) ? 1 : 0;
+		    default_ii.transform_diagon_serifs = (flags & 0x0008) ? 1 : 0;
+		    
+		    default_ii.a_from_d = (flags & 0x0010) ? 1 : 0;
+		    default_ii.f_long_tail = (flags & 0x0020) ? 1 : 0;
+		    default_ii.f_rotate_top = (flags & 0x0040) ? 1 : 0;
+		    default_ii.pq_deserif = (flags & 0x0080) ? 1 : 0;
+		    
+		    default_ii.cyrl_phi = (flags & 0x0100) ? 1 : 0;
+		    default_ii.cyrl_i = (flags & 0x0200) ? 1 : 0;
+		    default_ii.cyrl_pi = (flags & 0x0400) ? 1 : 0;
+		    default_ii.cyrl_te = (flags & 0x0800) ? 1 : 0;
+		    
+		    default_ii.cyrl_sha = (flags & 0x1000) ? 1 : 0;
+		    default_ii.cyrl_dje = (flags & 0x2000) ? 1 : 0;
+		    default_ii.cyrl_dzhe = (flags & 0x4000) ? 1 : 0;
+		}
+		continue;
+	    }
+	    break;
+
+	case 4:
+	    /* Argument 4: serif type: 1=flat, 2=simpleslant, 3=complexslant,
+	       others ignored */
+	    if ( c->a.vals[i].type==v_int ) {
+		switch (c->a.vals[i].u.ival) {
+		case 1: default_ii.secondary_serif = srf_flat; break;
+		case 2: default_ii.secondary_serif = srf_simpleslant; break;
+		case 3: default_ii.secondary_serif = srf_complexslant; break;
+		}
+		continue;
+	    }
+	    break;
+
+	case 5:
+	    /* Argument 5: left side bearings change, percentage */
+	    if ( c->a.vals[i].type==v_real )
+		pct = c->a.vals[i].u.fval;
+	    else if ( c->a.vals[i].type==v_int )
+		pct = c->a.vals[i].u.ival;
+	    else
+		break;
+	    default_ii.lc.lsb_percent = default_ii.lc.rsb_percent = 
+		default_ii.uc.lsb_percent = default_ii.uc.rsb_percent = 
+		default_ii.neither.lsb_percent =
+		default_ii.neither.rsb_percent = pct;
+	    continue;
+
+	case 6:
+	    /* Argument 6: stem width change, percentage */
+	    if ( c->a.vals[i].type==v_real )
+		pct = c->a.vals[i].u.fval;
+	    else if ( c->a.vals[i].type==v_int )
+		pct = c->a.vals[i].u.ival;
+	    else
+		break;
+	    default_ii.lc.stem_percent =
+		default_ii.uc.stem_percent =
+		default_ii.neither.stem_percent = pct;
+	    continue;
+
+	case 7:
+	    /* Argument 7: counters change, percentage */
+	    if ( c->a.vals[i].type==v_real )
+		pct = c->a.vals[i].u.fval;
+	    else if ( c->a.vals[i].type==v_int )
+		pct = c->a.vals[i].u.ival;
+	    else
+		break;
+	    default_ii.lc.counter_percent =
+		default_ii.uc.counter_percent =
+		default_ii.neither.counter_percent = pct;
+	    continue;
+
+	case 8:
+	    /* Argument 8: lowercase stem width change, percentage
+	       (defaults to argument 6) */
+	    if ( c->a.vals[i].type==v_real )
+		pct = c->a.vals[i].u.fval;
+	    else if ( c->a.vals[i].type==v_int )
+		pct = c->a.vals[i].u.ival;
+	    else
+		break;
+	    default_ii.lc.stem_percent = pct;
+	    continue;
+
+	case 9:
+	    /* Argument 9: lowercase counters change, percentage
+	       (defaults to argument 6) */
+	    if ( c->a.vals[i].type==v_real )
+		pct = c->a.vals[i].u.fval;
+	    else if ( c->a.vals[i].type==v_int )
+		pct = c->a.vals[i].u.ival;
+	    else
+		break;
+	    default_ii.lc.counter_percent = pct;
+	    continue;
+	}
+	{
+	    char errmsg[40];
+	    snprintf(errmsg, sizeof(errmsg), "Bad argument %d type in Italic", i);
+	    ScriptError(c, errmsg);
+	}
     }
-    if ( c->a.argc>2) {
-	if ( c->a.vals[2].type==v_real )
-	    default_ii.xheight_percent = c->a.vals[2].u.fval;
-	else if ( c->a.vals[2].type==v_int )
-	    default_ii.xheight_percent = c->a.vals[2].u.ival;
-	else
-	    ScriptError(c,"Bad argument 2 type in Italic");
-    }
-    if ( c->a.argc>3) {
-	if ( c->a.vals[3].type==v_real )
-	    pct = c->a.vals[3].u.fval;
-	else if ( c->a.vals[3].type==v_int )
-	    pct = c->a.vals[3].u.ival;
-	else
-	    ScriptError(c,"Bad argument 3 type in Italic");
-	default_ii.lc.lsb_percent = default_ii.lc.rsb_percent = 
-	    default_ii.uc.lsb_percent = default_ii.uc.rsb_percent = 
-	    default_ii.neither.lsb_percent =
-	    default_ii.neither.rsb_percent = pct;
-    }    
-    if ( c->a.argc>4) {
-	if ( c->a.vals[4].type==v_real )
-	    pct = c->a.vals[4].u.fval;
-	else if ( c->a.vals[4].type==v_int )
-	    pct = c->a.vals[4].u.ival;
-	else
-	    ScriptError(c,"Bad argument 4 type in Italic");
-	default_ii.lc.stem_percent =
-	    default_ii.uc.stem_percent =
-	    default_ii.neither.stem_percent = pct;
-    }    
-    if ( c->a.argc>5) {
-	if ( c->a.vals[5].type==v_real )
-	    pct = c->a.vals[5].u.fval;
-	else if ( c->a.vals[5].type==v_int )
-	    pct = c->a.vals[5].u.ival;
-	else
-	    ScriptError(c,"Bad argument 5 type in Italic");
-	default_ii.lc.counter_percent =
-	    default_ii.uc.counter_percent =
-	    default_ii.neither.counter_percent = pct;
-    }    
-    if ( c->a.argc>6) {
-	if ( c->a.vals[6].type==v_real )
-	    pct = c->a.vals[6].u.fval;
-	else if ( c->a.vals[6].type==v_int )
-	    pct = c->a.vals[6].u.ival;
-	else
-	    ScriptError(c,"Bad argument 6 type in Italic");
-	default_ii.lc.stem_percent = pct;
-    }    
-    if ( c->a.argc>7) {
-	if ( c->a.vals[7].type==v_real )
-	    pct = c->a.vals[7].u.fval;
-	else if ( c->a.vals[7].type==v_int )
-	    pct = c->a.vals[7].u.ival;
-	else
-	    ScriptError(c,"Bad argument 7 type in Italic");
-	default_ii.lc.counter_percent = pct;
-    }    
     MakeItalic(c->curfv,NULL,&default_ii);
 }
 
