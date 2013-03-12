@@ -4719,8 +4719,8 @@ static void bSmallCaps(Context *c) {
     struct smallcaps small = {};
     struct position_maps maps[2] = {{ .cur_width = -1 }, { .cur_width = 1 }};
     struct genericchange genchange = {
-	.stem_height_scale = 0.93, .stem_width_scale = 0.93,
-	.hcounter_scale = 0.66,	.lsb_scale = 0.66, .rsb_scale = 0.66,
+	.stem_height_scale = 0.89, .stem_width_scale = 0.89,
+	.hcounter_scale = 0.675, .lsb_scale = 0.675, .rsb_scale = 0.675,
 	.v_scale = 0.675,
 	.gc = gc_smallcaps,
 	.extension_for_letters = "sc",
@@ -4730,22 +4730,32 @@ static void bSmallCaps(Context *c) {
 	.m = { .cnt = 2, .maps = maps },
 	.small = &small
     };
+    double h_scale, v_scale = 0.675;
 
-    if ( c->a.argc>2 )
+    if ( c->a.argc>3 )
 	ScriptError( c, "Wrong number of arguments");
 
     SmallCapsFindConstants(&small,c->curfv->sf,c->curfv->active_layer);
 
     if ( c->a.argc>1 ) {
 	if ( c->a.vals[1].type==v_real )
-	    genchange.v_scale = c->a.vals[1].u.fval;
+	    v_scale = c->a.vals[1].u.fval;
 	else if ( c->a.vals[1].type==v_int )
-	    genchange.v_scale = c->a.vals[1].u.ival;
+	    v_scale = c->a.vals[1].u.ival;
 	else
-	    ScriptError(c,"Bad argument type in SmallCaps");
+	    ScriptError(c,"Bad argument 1 type in SmallCaps");
     }
-    small.vscale = small.hscale = genchange.v_scale;
-	
+    small.vscale = small.hscale = genchange.v_scale = h_scale = v_scale;
+    if ( c->a.argc>2 ) {
+	if ( c->a.vals[2].type==v_real )
+	    h_scale = c->a.vals[2].u.fval;
+	else if ( c->a.vals[2].type==v_int )
+	    h_scale = c->a.vals[2].u.ival;
+	else
+	    ScriptError(c,"Bad argument 2 type in SmallCaps");
+    }
+    genchange.hcounter_scale = genchange.lsb_scale = genchange.rsb_scale = h_scale;
+    
     maps[1].current = small.capheight;
     maps[1].desired = small.scheight = small.capheight * small.vscale;
 
