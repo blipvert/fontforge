@@ -4734,6 +4734,8 @@ static void bSmallCaps(Context *c) {
     if ( c->a.argc>2 )
 	ScriptError( c, "Wrong number of arguments");
 
+    SmallCapsFindConstants(&small,c->curfv->sf,c->curfv->active_layer);
+
     if ( c->a.argc>1 ) {
 	if ( c->a.vals[1].type==v_real )
 	    genchange.v_scale = c->a.vals[1].u.fval;
@@ -4742,11 +4744,10 @@ static void bSmallCaps(Context *c) {
 	else
 	    ScriptError(c,"Bad argument type in SmallCaps");
     }
+    small.vscale = small.hscale = genchange.v_scale;
 	
-    SmallCapsFindConstants(&small,c->curfv->sf,c->curfv->active_layer);
-
     maps[1].current = small.capheight;
-    maps[1].desired = small.scheight;
+    maps[1].desired = small.scheight = small.capheight * small.vscale;
 
     FVAddSmallCaps(c->curfv,&genchange);
 }
