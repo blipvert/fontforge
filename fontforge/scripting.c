@@ -4731,8 +4731,18 @@ static void bSmallCaps(Context *c) {
 	.small = &small
     };
 
-    if ( c->a.argc>1 )
+    if ( c->a.argc>2 )
 	ScriptError( c, "Wrong number of arguments");
+
+    if ( c->a.argc>1 ) {
+	if ( c->a.vals[1].type==v_real )
+	    genchange.v_scale = c->a.vals[1].u.fval;
+	else if ( c->a.vals[1].type==v_int )
+	    genchange.v_scale = c->a.vals[1].u.ival;
+	else
+	    ScriptError(c,"Bad argument type in SmallCaps");
+    }
+	
     SmallCapsFindConstants(&small,c->curfv->sf,c->curfv->active_layer);
 
     maps[1].current = small.capheight;
