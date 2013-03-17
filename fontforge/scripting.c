@@ -3409,6 +3409,66 @@ static void bLoadEncodingFile(Context *c) {
     /*DumpPfaEditEncodings();*/
 }
 
+enum sf_type { sft_invalid=0, sft_outline=1, sft_stroked=2, sft_multilayer=3 };
+
+static void ChangeFontType(SplineFont *sf, enum sf_type fonttype, real strokewidth)
+{
+    int i;
+    unsigned int strokedfont = (fonttype == sft_stroked);
+    unsigned int multilayer = (fonttype == sft_multilayer);
+
+    if ( strokedfont!=sf->strokedfont || multilayer!=sf->multilayer ) {
+	if ( sf->strokedfont && multilayer )
+	    SFSetLayerWidthsStroked(sf,sf->strokewidth);
+	else if ( sf->multilayer )
+	    SFSplinesFromLayers(sf,strokedfont);
+	SFReinstanciateRefs(sf);
+	if ( multilayer!=sf->multilayer ) {
+	    sf->multilayer = multilayer;
+	}
+	for ( i=0; i<sf->glyphcnt; ++i )
+	    if ( sf->glyphs[i]!=NULL )
+		sf->glyphs[i]->changedsincelasthinted = !strokedfont && !multilayer;
+    }
+    if ((sf->strokedfont = strokedfont))
+	sf->strokewidth = strokewidth;
+}
+
+static void bSetFontType(Context *c) {
+    if ( c->a.argc < 2 || c->a.argc > 3)
+	ScriptError( c, "Wrong number of arguments");
+    else if (c->a.vals[1].type != v_int )
+	ScriptError( c, "Bad argument type");
+    else {
+	enum sf_type fonttype = sft_invalid;
+	real strokewidth = 0.0;
+	
+	switch ( c->a.vals[1].u.ival ) {
+	case 1: fonttype = sft_outline; break;
+	case 2: fonttype = sft_stroked; break;
+	case 3: fonttype = sft_multilayer; break;
+	default:
+	    ScriptError( c, "Invalid font type");
+	}
+	    
+	if (c->a.argc == 3) {
+	    if (c->a.vals[2].type == v_int) {
+		strokewidth = c->a.vals[2].u.ival;
+	    }
+	    else if (c->a.vals[2].type == v_real) {
+		strokewidth = c->a.vals[2].u.fval;
+	    }
+	    else {
+		fonttype = sft_invalid;
+		ScriptError( c, "Invalid argument 2 type");
+	    }
+	}
+	
+	c->return_val.type = v_void;
+	ChangeFontType(c->curfv->sf, fonttype, strokewidth);
+    }
+}
+
 static void bSetFontOrder(Context *c) {
 
     if ( c->a.argc!=2 )
@@ -8560,6 +8620,7 @@ static struct builtins { char *name; void (*func)(Context *); int nofontok; } bu
     { "LoadEncodingFile", bLoadEncodingFile, 1 },
     { "SetGasp", bSetGasp, 0 },
     { "SetFontOrder", bSetFontOrder, 0 },
+    { "SetFontType", bSetFontType, 0 },
     { "SetFontHasVerticalMetrics", bSetFontHasVerticalMetrics, 0 },
     { "SetFontNames", bSetFontNames, 0 },
     { "SetFondName", bSetFondName, 0 },
