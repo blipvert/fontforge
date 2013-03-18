@@ -8707,7 +8707,7 @@ return( NULL );
 
 static void expr(Context*,Val *val);
 
-static int __AddScriptLine(FILE *script, const char *line)
+static int AddScriptLine(FILE *script, const char *line)
 {
     fpos_t pos;
 
@@ -8722,7 +8722,7 @@ static int __AddScriptLine(FILE *script, const char *line)
     return getc(script);
 }
 
-static int __cgetc(Context *c) {
+static int _buffered_cgetc(Context *c) {
     if (c->interactive) {
 	int ch;
 
@@ -8731,12 +8731,12 @@ static int __cgetc(Context *c) {
 	    static char *linebuf = NULL;
 	    static size_t lbsize = 0;
 	    if (getline(&linebuf, &lbsize, stdin) > 0) {
-		ch = __AddScriptLine(c->script, linebuf);
+		ch = AddScriptLine(c->script, linebuf);
 	    }
 #else
 	    char *line = readline("> ");
 	    if (line) {
-		ch = __AddScriptLine(c->script, line);
+		ch = AddScriptLine(c->script, line);
 		add_history(line);
 		free(line);
 	    }
@@ -8750,11 +8750,11 @@ static int __cgetc(Context *c) {
 static int _cgetc(Context *c) {
     int ch;
 
-    ch = __cgetc(c);
+    ch = _buffered_cgetc(c);
     if ( verbose>0 )
 	putchar(ch);
     if ( ch=='\r' ) {
-	int nch = __cgetc(c);
+	int nch = _buffered_cgetc(c);
 	if ( nch!='\n' )
 	    ungetc(nch,c->script);
 	else if ( verbose>0 )
