@@ -1475,7 +1475,9 @@ void FVRemoveUnused(FontViewBase *fv) {
     int gid, i;
     int flags = -1;
 
-    for ( i=map->enccount-1; i>=0 && ((gid=map->map[i])==-1 || !SCWorthOutputting(sf->glyphs[gid]));
+    for ( i=map->enccount-1;
+            i>=map->enc->char_cnt &&
+                ((gid=map->map[i])==-1 || !SCWorthOutputting(sf->glyphs[gid]));
 	    --i ) {
 	if ( gid!=-1 )
 	    SFRemoveGlyph(sf,sf->glyphs[gid],&flags);
@@ -1908,7 +1910,8 @@ static FontViewBase *FontViewBase_Create(SplineFont *sf,int hide) {
 return( fv );
 }
 
-static FontViewBase *FontViewBase_Append(FontViewBase *fv) {
+static FontViewBase *FontViewBase_Append(FontViewBase *fv)
+{
     /* Normally fontviews get added to the fv list when their windows are */
     /*  created. but we don't create any windows here, so... */
     FontViewBase *test;
@@ -2094,3 +2097,4 @@ struct mv_interface *mv_interface = &noui_mv;
 void FF_SetMVInterface(struct mv_interface *mvi) {
     mv_interface = mvi;
 }
+

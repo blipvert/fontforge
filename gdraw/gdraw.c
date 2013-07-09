@@ -29,7 +29,9 @@
 #include <ustring.h>
 #include <gio.h>
 #include "gdraw.h"
-#include <sys/select.h>
+#if __Mac
+#  include <sys/select.h>
+#endif
 
 /* Functions for font metrics:
     rectangle of text (left side bearing of first char, right of last char)
@@ -944,25 +946,24 @@ return( NULL );
 return( (gdisp->funcs->nativeDisplay)(gdisp) );
 }
 
-/* void setZeroMQReadFD( GDisplay *gdisp, */
-/* 		      int zeromq_fd, void* zeromq_datas, */
-/* 		      void (*zeromq_fd_callback)(int zeromq_fd, void* datas )) */
-/* { */
-/*     if ( gdisp==NULL ) */
-/* 	gdisp=screen_display; */
-    
-/*     gdisp->zeromq_fd = zeromq_fd; */
-/*     gdisp->zeromq_datas = zeromq_datas; */
-/*     gdisp->zeromq_fd_callback = zeromq_fd_callback; */
-/* } */
 
 void
 GDrawAddReadFD( GDisplay *gdisp,
 		int fd, void* udata,
 		void (*callback)(int fd, void* udata ))
 {
-    if ( gdisp==NULL )
+    if ( !gdisp )
+    {
 	gdisp=screen_display;
+    }
+    
+    if( !gdisp )
+    {
+	// collab code being called from python scripted fontforge.
+	GDrawCreateDisplays( 0, "fontforge");
+	gdisp=screen_display;
+    }
+    
     if( gdisp->fd_callbacks_last >= gdisplay_fd_callbacks_size )
     {
 	fprintf(stderr,"Error: FontForge has attempted to add more read FDs than it is equipt to handle\n");
@@ -1052,6 +1053,7 @@ GDrawRemoveReadFD( GDisplay *gdisp,
 
 void MacServiceReadFDs()
 {
+#if !defined(__MINGW32__)
     int ret = 0;
     
     GDisplay *gdisp = GDrawGetDisplayOfWindow(0);
@@ -1079,6 +1081,7 @@ void MacServiceReadFDs()
 	if( FD_ISSET(cb->fd,&read))
 	    cb->callback( cb->fd, cb->udata );
     }
+#endif
 }
 
 

@@ -34,15 +34,7 @@
 #include "ttf.h"		/* For MAC_DELETED_GLYPH_NAME */
 #include <gkeysym.h>
 #include "is_LIGATURE.h"
-
-#ifndef _NO_LIBUNINAMESLIST
-#include <uninameslist.h>
-#else
-#ifndef _NO_LIBUNICODENAMES
-#include <libunicodenames.h>
-extern uninm_names_db names_db; /* Unicode character names and annotations database */
-#endif
-#endif
+#include "gutils/unicodelibinfo.h"
 
 extern int lookup_hideunused;
 
@@ -1221,6 +1213,7 @@ static SplineChar *CI_SCDuplicate(SplineChar *sc) {
 
     newsc = chunkalloc(sizeof(SplineChar));
     newsc->name = copy(sc->name);
+    newsc->parent = sc->parent;
     newsc->unicodeenc = sc->unicodeenc;
     newsc->orig_pos = sc->orig_pos;
     newsc->comment = copy(sc->comment);
@@ -1534,7 +1527,7 @@ static void CI_ApplyAll(CharInfo *ci) {
 	    refresh_fvdi = 1;
 	if ( sc->name==NULL || strcmp( sc->name,cached->name )!=0 ) {
 	    if ( sc->name!=NULL )
-		SFGlyphRenameFixup(sf,sc->name,cached->name);
+		SFGlyphRenameFixup(sf,sc->name,cached->name,false);
 	    free(sc->name); sc->name = copy(cached->name);
 	    sc->namechanged = true;
 	    GlyphHashFree(sf);
@@ -1681,7 +1674,7 @@ return( true );
  * subtables. */
 static char *LigDefaultStr(int uni, char *name, int alt_lig ) {
     const unichar_t *alt=NULL, *pt;
-    char *components = NULL;
+    char *components = NULL, *tmp;
     int len;
     unichar_t hack[30], *upt;
     char buffer[80];
@@ -1705,13 +1698,7 @@ static char *LigDefaultStr(int uni, char *name, int alt_lig ) {
 		uni!=0x215f &&
 		!((uni>=0x0958 && uni<=0x095f) || uni==0x929 || uni==0x931 || uni==0x934)) {
 	    alt = NULL;
-#if _NO_LIBUNINAMESLIST && _NO_LIBUNICODENAMES
-#else
-#ifndef _NO_LIBUNINAMESLIST
-	} else if ( uniNamesList_name(uni)==NULL ) {
-#else
-	} else if ( names_db==NULL ) {
-#endif
+	} else if ( (tmp=unicode_name(65))==NULL ) { /* test for 'A' to see if library exists */
 	    if ( (uni>=0xbc && uni<=0xbe ) ||		/* Latin1 fractions */
 		    (uni>=0x2153 && uni<=0x215e ) ||	/* other fractions */
 		    (uni>=0xfb00 && uni<=0xfb06 ) ||	/* latin ligatures */
@@ -1724,8 +1711,8 @@ static char *LigDefaultStr(int uni, char *name, int alt_lig ) {
 		;	/* These are good */
 	    else
 		alt = NULL;
-#endif
-	}
+	} else
+	    free(tmp); /* found 'A' means there is a library, now cleanup */
     }
     if ( alt==NULL ) {
 	if ( name==NULL || alt_lig )
@@ -3504,8 +3491,8 @@ static int isbaseline(int uni) {
 	    uni==0x3b0 || uni==0x3b4 || uni==0x3b5 || (uni>=0x3b8 && uni<0x3bb) ||
 	    uni==0x3bd || uni==0x3bf || uni==0x3c0 || (uni>=0x3c2 && uni<0x3c6) ||
 	    uni==0x3c8 || uni==0x3c7 || uni==0x3c9 ||
-	    (uni>=0x390 || uni<0x3af) ||
-	    (uni>=0x400 && uni>0x40f) || (uni>=0x410 && uni<=0x413) ||
+	    (uni>=0x391 && uni<0x3aa) ||
+	    (uni>=0x400 && uni<0x40f) || (uni>=0x410 && uni<=0x413) ||
 	    (uni>=0x415 && uni<0x425) || uni==0x427 || uni==0x428 ||
 	    (uni>=0x42a && uni<0x433) || (uni>=0x435 && uni<0x45e) )
 return( true );

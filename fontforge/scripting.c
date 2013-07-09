@@ -52,6 +52,8 @@
 #include "scriptfuncs.h"
 #include "flaglist.h"
 
+#include "gutils/unicodelibinfo.h"
+
 int no_windowing_ui = false;
 int running_script = false;
 int use_utf8_in_script = true;
@@ -77,7 +79,7 @@ struct keywords { enum token_type tok; char *name; } keywords[] = {
 };
 
 static const char *toknames[] = {
-    "name", "string", "number", "unicode id", "real number", 
+    "name", "string", "number", "unicode id", "real number",
     "lparen", "rparen", "comma", "end of ff_statement",
     "lbracket", "rbracket",
     "minus", "plus", "logical not", "bitwise not", "colon",
@@ -313,7 +315,7 @@ void ScriptErrorString( Context *c, const char *msg, const char *name) {
 	fflush(stdout);
     if ( c->interactive )
 	LogError( "Error: %s: %s\n", t1, t2 );
-    if ( c->lineno!=0 )
+    else if ( c->lineno!=0 )
 	LogError( _("%s line: %d %s: %s\n"), ufile, c->lineno, t1, t2 );
     else
 	LogError( "%s: %s: %s\n", ufile, t1, t2 );
@@ -333,7 +335,7 @@ void ScriptErrorF( Context *c, const char *format, ... ) {
     va_start(ap,format);
     vsnprintf(errbuf,sizeof(errbuf),format,ap);
     va_end(ap);
-    
+
     if ( verbose>0 )
 	fflush(stdout);
     if (c->interactive)
@@ -1065,7 +1067,7 @@ static void bNameFromUnicode(Context *c) {
     char buffer[400];
     int uniinterp;
     NameList *for_new_glyphs;
-    
+
     if ( c->a.argc!=2 && c->a.argc!=3 )
 	ScriptError( c, "Wrong number of arguments" );
     else if ( c->a.vals[1].type!=v_int && c->a.vals[1].type!=v_unicode )
@@ -1085,9 +1087,92 @@ static void bNameFromUnicode(Context *c) {
 	uniinterp = c->curfv->sf->uni_interp;
 	for_new_glyphs = c->curfv->sf->for_new_glyphs;
     }
-    
+
     c->return_val.type = v_str;
     c->return_val.u.sval = copy(StdGlyphName(buffer,c->a.vals[1].u.ival,uniinterp,for_new_glyphs));
+}
+
+static void bUnicodeBlockEndFromLib(Context *c) {
+/* If the library is available, then get the official Nth block end */
+    if ( c->a.argc!=2 )
+	ScriptError( c, "Wrong number of arguments" );
+    else if ( c->a.vals[1].type!=v_int && c->a.vals[1].type!=v_unicode )
+	ScriptError( c, "Bad type for argument" );
+    c->return_val.type=v_int;
+
+    c->return_val.u.ival=unicode_block_end(c->a.vals[1].u.ival);
+}
+
+static void bUnicodeBlockNameFromLib(Context *c) {
+/* If the library is available, then get the official Nth block name */
+    char *temp;
+
+    if ( c->a.argc!=2 )
+	ScriptError( c, "Wrong number of arguments" );
+    else if ( c->a.vals[1].type!=v_int && c->a.vals[1].type!=v_unicode )
+	ScriptError( c, "Bad type for argument" );
+    c->return_val.type = v_str;
+
+    if ( (temp=unicode_block_name(c->a.vals[1].u.ival))==NULL ) {
+	temp=galloc(1*sizeof(char)); *temp='\0';
+    }
+    c->return_val.u.sval=temp;
+}
+
+static void bUnicodeBlockStartFromLib(Context *c) {
+/* If the library is available, then get the official Nth block start */
+    if ( c->a.argc!=2 )
+	ScriptError( c, "Wrong number of arguments" );
+    else if ( c->a.vals[1].type!=v_int && c->a.vals[1].type!=v_unicode )
+	ScriptError( c, "Bad type for argument" );
+    c->return_val.type=v_int;
+
+    c->return_val.u.ival=unicode_block_start(c->a.vals[1].u.ival);
+}
+
+static void bUnicodeNameFromLib(Context *c) {
+/* If the library is available, then get the official name for this unicode value */
+    char *temp;
+
+    if ( c->a.argc!=2 )
+	ScriptError( c, "Wrong number of arguments" );
+    else if ( c->a.vals[1].type!=v_int && c->a.vals[1].type!=v_unicode )
+	ScriptError( c, "Bad type for argument" );
+    c->return_val.type = v_str;
+
+    if ( (temp=unicode_name(c->a.vals[1].u.ival))==NULL ) {
+	temp=galloc(1*sizeof(char)); *temp='\0';
+    }
+    c->return_val.u.sval = temp;
+}
+
+static void bUnicodeAnnotationFromLib(Context *c) {
+    char *temp;
+
+    if ( c->a.argc!=2 )
+	ScriptError( c, "Wrong number of arguments" );
+    else if ( c->a.vals[1].type!=v_int && c->a.vals[1].type!=v_unicode )
+	ScriptError( c, "Bad type for argument" );
+    c->return_val.type = v_str;
+
+    if ( (temp=unicode_annot(c->a.vals[1].u.ival))==NULL ) {
+	temp=galloc(1*sizeof(char)); *temp='\0';
+    }
+    c->return_val.u.sval = temp;
+}
+
+static void bUnicodeNamesListVersion(Context *c) {
+/* If the library is available, then return the Nameslist Version */
+    char *temp;
+
+    if ( c->a.argc!=1 )
+	ScriptError( c, "Wrong number of arguments" );
+
+    if ( (temp=unicode_library_version())==NULL ) {
+	temp=galloc(1*sizeof(char)); *temp='\0';
+    }
+    c->return_val.type = v_str;
+    c->return_val.u.sval = temp;
 }
 
 static void bChr(Context *c) {
@@ -1790,12 +1875,12 @@ static void bSave(Context *c) {
 	    ScriptError(c,"The second argument to Save() must be a number of revisions to keep (integer)");
 	localRevisionsToRetain = c->a.vals[2].u.ival;
     }
-    
+
     if ( c->a.argc>=2 )
     {
 	if ( c->a.vals[1].type!=v_str )
 	    ScriptError(c,"If an argument is given to Save it must be a filename");
-	
+
 	t = script2utf8_copy(c->a.vals[1].u.sval);
 	locfilename = utf82def_copy(t);
 #ifdef VMS
@@ -1813,7 +1898,7 @@ static void bSave(Context *c) {
 				      localRevisionsToRetain );
 	if ( !rc )
 	    ScriptError(c,"Save failed" );
-	    
+
 	/* Hmmm. We don't set the filename, nor the save_to_dir bit */
 	free(t); free(locfilename);
     }
@@ -2349,7 +2434,7 @@ static void bPrintSetup(Context *c) {
     }
     if ( c->a.vals[1].u.ival<0 || c->a.vals[1].u.ival>5 )
 	ScriptError( c, "First argument out of range [0,5]");
-    
+
     printtype = c->a.vals[1].u.ival;
     if ( c->a.argc>=3 && printtype==4 )
 	printcommand = copy(c->a.vals[2].u.sval);
@@ -2375,7 +2460,7 @@ static void bPrintFont(Context *c) {
     }
     if ( c->a.argc>=3 ) {
 	if ( c->a.vals[2].type==v_int ) {
-	    if ( c->a.vals[2].u.ival>0 ) { 
+	    if ( c->a.vals[2].u.ival>0 ) {
 		pointsizes = gcalloc(2,sizeof(int32));
 		pointsizes[0] = c->a.vals[2].u.ival;
 	    }
@@ -3155,7 +3240,7 @@ static void bRemoveDetachedGlyphs(Context *c) {
 
     for ( gid=0; gid<sf->glyphcnt; ++gid ) if ( sf->glyphs[gid]!=NULL )
 	sf->glyphs[gid]->ticked = false;
-	
+
     for ( i=0; i<map->enccount; ++i ) if ( (gid=map->map[i])!=-1 )
 	sf->glyphs[gid]->ticked = true;
 
@@ -3432,7 +3517,7 @@ static void bSetGasp(Context *c) {
 	base = 0;
     } else if ( (c->a.argc&1)==0 )
 	ScriptError( c, "Wrong number of arguments");
-    else { 
+    else {
 	arr = &c->a;
 	base = 1;
     }
@@ -3954,7 +4039,7 @@ static void bGetFontBoundingBox(Context *c) {
     c->return_val.u.aval->vals[2].u.fval = b.maxx;
     c->return_val.u.aval->vals[3].u.fval = b.maxy;
 }
- 
+
 static void bSetUniqueID(Context *c) {
 
     if ( c->a.argc!=2 )
@@ -3981,7 +4066,7 @@ static void bGetTeXParam(Context *c) {
     else
 	c->return_val.u.ival = sf->texdata.params[c->a.vals[1].u.ival];
 }
-    
+
 static void bSetTeXParams(Context *c) {
     int i;
 
@@ -4251,7 +4336,7 @@ return( true );
     }
 return( false );
 }
-		
+
 static void FVApplySubstitution(FontViewBase *fv,uint32 script, uint32 lang, uint32 feat_tag) {
     SplineFont *sf = fv->sf, *sf_sl=sf;
     SplineChar *sc, *replacement, *sc2;
@@ -5919,7 +6004,7 @@ static void bClearTable(Context *c) {
 static void bAddDHint( Context *c ) {
     int i, any, gid;
     BasePoint left, right, unit;
-    real args[6]; 
+    real args[6];
     double len, width;
     FontViewBase *fv = c->curfv;
     SplineFont *sf = fv->sf;
@@ -6266,7 +6351,7 @@ static void bAutoKern(Context *c) {
     sub = SFFindLookupSubtable(c->curfv->sf,c->a.vals[3].u.sval);
     if ( sub==NULL )
 	ScriptErrorString(c,"Unknown lookup subtable",c->a.vals[3].u.sval);
-    
+
     if ( !AutoKernScript(c->curfv,c->a.vals[1].u.ival,c->a.vals[2].u.ival,
 	    sub,c->a.argc==5?c->a.vals[4].u.sval:NULL) )
 	ScriptError(c,"No characters selected.");
@@ -6603,7 +6688,7 @@ static void bCIDChangeSubFont(Context *c) {
 
 static void bCIDSetFontNames(Context *c) {
     SplineFont *sf = c->curfv->sf;
-    
+
     if ( sf->cidmaster==NULL )
 	ScriptErrorString( c, "Not a cid-keyed font", sf->fontname );
     _SetFontNames(c,sf->cidmaster);
@@ -6611,26 +6696,26 @@ static void bCIDSetFontNames(Context *c) {
 
 static void bCIDFlatten(Context *c) {
     SplineFont *sf = c->curfv->sf;
-    
+
     if ( sf->cidmaster==NULL )
 	ScriptErrorString( c, "Not a cid-keyed font", sf->fontname );
     else if ( c->a.argc!=1 )
 	ScriptError( c, "Wrong number of arguments");
-    
+
     SFFlatten(sf->cidmaster);
 }
 
 static void bCIDFlattenByCMap(Context *c) {
     SplineFont *sf = c->curfv->sf;
     char *t; char *locfilename;
-    
+
     if ( sf->cidmaster==NULL )
 	ScriptErrorString( c, "Not a cid-keyed font", sf->fontname );
     else if ( c->a.argc!=2 )
 	ScriptError( c, "Wrong number of arguments");
     else if ( c->a.vals[1].type!=v_str )
 	ScriptError( c, "Argument must be a filename");
-    
+
     t = script2utf8_copy(c->a.vals[1].u.sval);
     locfilename = utf82def_copy(t);
     if ( !SFFlattenByCMap(sf,locfilename))
@@ -7250,7 +7335,7 @@ static void bSetFeatureList(Context *c) {
 
     if ( c->a.argc!=3 )
 	ScriptError( c, "Wrong number of arguments");
-    else if ( c->a.vals[1].type!=v_str || 
+    else if ( c->a.vals[1].type!=v_str ||
 	     (c->a.vals[2].type!=v_arr && c->a.vals[2].type!=v_arrfree))
 	ScriptError( c, "Bad type for argument");
 
@@ -7735,7 +7820,7 @@ maxsect_reached:
       val[l] = val[i];
       val[i] = temp;
     }
-    
+
   c->return_val.type = v_arrfree;
   c->return_val.u.aval = galloc(sizeof(Array));
   c->return_val.u.aval->argc = j;
@@ -7950,7 +8035,7 @@ static void bGetAnchorPoints(Context *c) {
 
     sc = GetOneSelChar(c);
 
-    for ( ap=sc->anchor, cnt=0; ap!=NULL; ap=ap->next, ++cnt ) 
+    for ( ap=sc->anchor, cnt=0; ap!=NULL; ap=ap->next, ++cnt )
         ;
     ret = galloc(sizeof(Array));
     ret->argc = cnt;
@@ -8380,6 +8465,12 @@ static struct builtins { char *name; void (*func)(Context *); int nofontok; } bu
     { "GetEnv", bGetEnv, 1 },
     { "UnicodeFromName", bUnicodeFromName, 1 },
     { "NameFromUnicode", bNameFromUnicode, 1 },
+    { "UnicodeBlockEndFromLib", bUnicodeBlockEndFromLib, 1 },
+    { "UnicodeBlockNameFromLib", bUnicodeBlockNameFromLib, 1},
+    { "UnicodeBlockStartFromLib", bUnicodeBlockStartFromLib, 1 },
+    { "UnicodeNameFromLib", bUnicodeNameFromLib, 1 },
+    { "UnicodeAnnotationFromLib", bUnicodeAnnotationFromLib, 1 },
+    { "UnicodeNamesListVersion", bUnicodeNamesListVersion, 1 },
     { "Chr", bChr, 1 },
     { "Ord", bOrd, 1 },
     { "Real", bReal, 1 },
@@ -8722,6 +8813,24 @@ static int AddScriptLine(FILE *script, const char *line)
     return getc(script);
 }
 
+#if defined(__MINGW32__)
+
+ssize_t getline(char **lineptr, size_t *n, FILE *stream);
+ssize_t getline(char **lineptr, size_t *n, FILE *stream)
+{
+    int size = 1024;
+    char* s = calloc( size+1, sizeof(char) );
+    char* ret = fgets( s, size, stream );
+    if( !ret )
+    {
+	free(s);
+	return -1;
+    }
+    return s;
+}
+
+#endif
+
 static int _buffered_cgetc(Context *c) {
     if (c->interactive) {
 	int ch;
@@ -8732,6 +8841,11 @@ static int _buffered_cgetc(Context *c) {
 	    static size_t lbsize = 0;
 	    if (getline(&linebuf, &lbsize, stdin) > 0) {
 		ch = AddScriptLine(c->script, linebuf);
+	    } else {
+		if (linebuf) {
+		    free(linebuf);
+		    linebuf = NULL;
+		}
 	    }
 #else
 	    char *line = readline("> ");
@@ -8741,6 +8855,10 @@ static int _buffered_cgetc(Context *c) {
 		free(line);
 	    }
 #endif
+	    if (ch < 0) {
+		/* stdin is closed, so stop reading from it */
+		c->interactive = 0;
+	    }
 	}
 	return ch;
     }
@@ -9319,7 +9437,7 @@ static void handlename(Context *c,Val *val) {
 		    else sf = FontViewFirst()->sf;
 		} else {
 		    if ( c->curfv==NULL ) ScriptError(c,"No current font");
-		    if ( strcmp(name,"$curfont")==0 ) 
+		    if ( strcmp(name,"$curfont")==0 )
 			sf = c->curfv->sf;
 		    else {
 			if ( c->curfv->next==NULL ) sf = NULL;
@@ -9823,7 +9941,7 @@ static void comp(Context *c,Val *val) {
 		if ( val->u.fval>other.u.fval ) cmp =  1;
 		else if ( val->u.fval<other.u.fval ) cmp = -1;
 		else cmp = 0;
-	    } else 
+	    } else
 		ScriptError( c, "Invalid type in integer expression" );
 	    val->type = v_int;
 	    if ( tok==tt_eq ) val->u.ival = (cmp==0);
@@ -10372,7 +10490,7 @@ return( def_py );
 
 static void _CheckIsScript(int argc, char *argv[]) {
     int i, is_python = DefaultLangPython();
-    char *arg;
+    char *pt;
 
 #ifndef _NO_PYTHON
 /*# ifndef GWW_TEST*/
@@ -10382,15 +10500,15 @@ static void _CheckIsScript(int argc, char *argv[]) {
     if ( argc==1 )
 return;
     for ( i=1; i<argc; ++i ) {
-	arg = argv[i];
-	if ( *arg=='-' && arg[1]=='-' ) ++arg;
-	if ( strcmp(arg,"-nosplash")==0 )
+	pt = argv[i];
+	if ( *pt=='-' && pt[1]=='-' && pt[2]!='\0' ) ++pt;
+	if ( strcmp(pt,"-nosplash")==0 )
 	    /* Skip it */;
-	else if ( strcmp(argv[i],"-lang=py")==0 )
+	else if ( strcmp(pt,"-lang=py")==0 )
 	    is_python = true;
-	else if ( strcmp(argv[i],"-lang=ff")==0 || strcmp(argv[i],"-lang=pe")==0 )
+	else if ( strcmp(pt,"-lang=ff")==0 || strcmp(pt,"-lang=pe")==0 )
 	    is_python = false;
-	else if ( strcmp(argv[i],"-lang")==0 && i+1<argc &&
+	else if ( strcmp(pt,"-lang")==0 && i+1<argc &&
 		(strcmp(argv[i+1],"py")==0 || strcmp(argv[i+1],"ff")==0 || strcmp(argv[i+1],"pe")==0)) {
 	    ++i;
 	    is_python = strcmp(argv[i],"py")==0;
@@ -10405,10 +10523,10 @@ return;
 #elif !defined(_NO_FFSCRIPT)
 	    ProcessNativeScript(argc, argv,stdin);
 #endif
-	} else if ( strcmp(argv[i],"-script")==0 ||
-		strcmp(argv[i],"-dry")==0 || strcmp(argv[i],"-c")==0 ) {
+	} else if ( strcmp(pt,"-script")==0 ||
+		strcmp(pt,"-dry")==0 || strcmp(argv[i],"-c")==0 ) {
 #if !defined(_NO_FFSCRIPT) && !defined(_NO_PYTHON)
-	    if ( is_python==-1 && strcmp(argv[i],"-script")==0 )
+	    if ( is_python==-1 && strcmp(pt,"-script")==0 )
 		is_python = PythonLangFromExt(argv[i+1]);
 	    if ( is_python )
 		PyFF_Main(argc,argv,i);

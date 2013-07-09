@@ -27,14 +27,6 @@
 #include "fontforgeui.h"
 #include "groups.h"
 #include "psfont.h"
-#ifndef _NO_LIBUNINAMESLIST
-#include <uninameslist.h>
-#else
-#ifndef _NO_LIBUNICODENAMES
-#include <libunicodenames.h>
-extern uninm_names_db names_db; /* Unicode character names and annotations database */
-#endif
-#endif
 #include <gfile.h>
 #include <gio.h>
 #include <gresedit.h>
@@ -46,9 +38,10 @@ extern uninm_names_db names_db; /* Unicode character names and annotations datab
 #include <math.h>
 #include <unistd.h>
 
-#include "collabclient.h"
+#include "collabclientui.h"
 #include "inc/gnetwork.h"
 
+#include "gutils/unicodelibinfo.h"
 
 int OpenCharsInNewWindow = 0;
 char *RecentFiles[RECENT_MAX] = { NULL };
@@ -2467,7 +2460,7 @@ static void FVMenuBaseHoriz(GWindow gw, struct gmenuitem *UNUSED(mi), GEvent *UN
 static void FVMenuBaseVert(GWindow gw, struct gmenuitem *UNUSED(mi), GEvent *UNUSED(e)) {
     FontView *fv = (FontView *) GDrawGetUserData(gw);
     SplineFont *sf = fv->b.cidmaster == NULL ? fv->b.sf : fv->b.cidmaster;
-    sf->vert_base = SFBaselines(sf,sf->vert_base,false);
+    sf->vert_base = SFBaselines(sf,sf->vert_base,true);
     SFBaseSort(sf);
 }
 
@@ -3588,13 +3581,13 @@ static void FontViewSetTitle(FontView *fv) {
 return;
 
     char* collabStateString = "";
-    if( collabclient_inSessionFV( fv ))
+    if( collabclient_inSessionFV( &fv->b ))
     {
 	printf("collabclient_getState( fv ) %d %d\n",
 	       fv->b.collabState,
-	       collabclient_getState( fv ) );
+	       collabclient_getState( &fv->b ) );
 	collabStateString = collabclient_stateToString(
-	    collabclient_getState( fv ));
+	    collabclient_getState( &fv->b ));
     }
     
     enc = SFEncodingName(fv->b.sf,fv->b.normal?fv->b.normal:fv->b.map);
@@ -5676,7 +5669,7 @@ static void FVMenuCollabCloseLocalServer(GWindow gw, struct gmenuitem *UNUSED(mi
     }
     
     collabclient_sessionDisconnect( &fv->b );
-    collabclient_closeLocalServer( fv );
+    collabclient_closeLocalServer( &fv->b );
 }
 
 static void collablistcheck(GWindow gw, struct gmenuitem *mi, GEvent *UNUSED(e))
@@ -6220,12 +6213,9 @@ static void FVExpose(FontView *fv,GWindow pixmap, GEvent *event) {
     GDrawSetDither(NULL, true);
 }
 
-#if _NO_LIBUNINAMESLIST && _NO_LIBUNICODENAMES
-#else
 static char *chosung[] = { "G", "GG", "N", "D", "DD", "L", "M", "B", "BB", "S", "SS", "", "J", "JJ", "C", "K", "T", "P", "H", NULL };
 static char *jungsung[] = { "A", "AE", "YA", "YAE", "EO", "E", "YEO", "YE", "O", "WA", "WAE", "OE", "YO", "U", "WEO", "WE", "WI", "YU", "EU", "YI", "I", NULL };
 static char *jongsung[] = { "", "G", "GG", "GS", "N", "NJ", "NH", "D", "L", "LG", "LM", "LB", "LS", "LT", "LP", "LH", "M", "B", "BS", "S", "SS", "NG", "J", "C", "K", "T", "P", "H", NULL };
-#endif
 
 void FVDrawInfo(FontView *fv,GWindow pixmap, GEvent *event) {
     GRect old, r;
@@ -6301,20 +6291,13 @@ return;
 	fg = 0x707070;
     }
 
-#if _NO_LIBUNINAMESLIST && _NO_LIBUNICODENAMES
-#else
-    /* Get unicode "Name" as defined in NameList.txt */
     if (uni != -1) {
-	const char *uniname;
-#ifndef _NO_LIBUNINAMESLIST
-	if ( (uniname=uniNamesList_name(uni))!=NULL ) {
-#else
-        if ( (uniname=uninm_name(names_db,(unsigned int) uni))!= NULL ) {;
-#endif
+	char *uniname;
+	if ( (uniname=unicode_name(uni))!=NULL ) {
+	    /* Show unicode "Name" as defined in NameList.txt */
 	    utf82u_strncpy(ubuffer+u_strlen(ubuffer),uniname,80);
-//	    strncat(buffer,uniname,80);
+	    free(uniname);
 	} else if ( uni>=0xAC00 && uni<=0xD7A3 ) {
-//	    sprintf( buffer+strlen(buffer), "Hangul Syllable %s%s%s",
             sprintf( buffer, "Hangul Syllable %s%s%s",
 		    chosung[(uni-0xAC00)/(21*28)],
 		    jungsung[(uni-0xAC00)/28%21],
@@ -6322,10 +6305,8 @@ return;
             uc_strncat(ubuffer,buffer,80);
 	} else {
             uc_strncat(ubuffer, UnicodeRange(uni),80);
-//	    strncat(buffer, UnicodeRange(uni),80);
 	}
     }
-#endif
 
     tlen = GDrawDrawText(pixmap,10,fv->mbh+fv->lab_as,ubuffer,ulen,fvglyphinfocol);
     GDrawDrawText(pixmap,10+tlen,fv->mbh+fv->lab_as,ubuffer+ulen,-1,fg);
@@ -6527,8 +6508,6 @@ return;
     }
 }
 
-#if _NO_LIBUNINAMESLIST && _NO_LIBUNICODENAMES
-#else
 static void utf82u_annot_strncat(unichar_t *to, const char *from, int len) {
     register unichar_t ch;
 
@@ -6542,7 +6521,6 @@ static void utf82u_annot_strncat(unichar_t *to, const char *from, int len) {
     }
     *to = 0;
 }
-#endif
 
 void SCPreparePopup(GWindow gw,SplineChar *sc,struct remap *remap, int localenc,
 	int actualuni) {
@@ -6588,16 +6566,9 @@ void SCPreparePopup(GWindow gw,SplineChar *sc,struct remap *remap, int localenc,
 	done = true;
     }
 
-#if _NO_LIBUNINAMESLIST && _NO_LIBUNICODENAMES
-#else
-    const char *uniname;
-    const char *uniannot;
     if ( !done ) {
-#ifndef _NO_LIBUNINAMESLIST
-	if ( (uniname=uniNamesList_name(upos))!=NULL ) {
-#else
-	if ( (uniname=uninm_name(names_db,upos))!=NULL ) {
-#endif
+	char *uniname;
+	if ( (uniname=unicode_name(upos))!=NULL ) {
 	    /* uniname=unicode "Name" as defined in NameList.txt */
 #if defined( _NO_SNPRINTF )
             sprintf( cspace, "%u 0x%x U+%04x \"%.25s\" %.100s", localenc, localenc, upos, sc->name==NULL?"":sc->name,
@@ -6607,6 +6578,7 @@ void SCPreparePopup(GWindow gw,SplineChar *sc,struct remap *remap, int localenc,
                       uniname);
 #endif
             utf82u_strcpy(space,cspace);
+	    free(uniname);
         } else if ( upos>=0xAC00 && upos<=0xD7A3 ) {
 #if defined( _NO_SNPRINTF )
             sprintf( cspace, "%u 0x%x U+%04x \"%.25s\" Hangul Syllable %s%s%s",
@@ -6633,19 +6605,16 @@ void SCPreparePopup(GWindow gw,SplineChar *sc,struct remap *remap, int localenc,
             utf82u_strcpy(space,cspace);
         }
     }
-#ifndef _NO_LIBUNINAMESLIST
-    if ( (uniannot=uniNamesList_name(upos))!=NULL ) {
-#else
-    if ( (uniannot=uninm_annotation(names_db,upos))!=NULL ) {
-#endif
+    char *uniannot;
+    if ( (uniannot=unicode_annot(upos))!=NULL ) {
 	/* uniannot=unicode "Annotations" as defined in NameList.txt */
 	int left = sizeof(space)/sizeof(space[0]) - u_strlen(space)-1;
 	if ( left>4 ) {
 	    uc_strcat(space,"\n");
             utf82u_annot_strncat(space, uniannot, left-2);
 	}
+	free(uniannot);
     }
-#endif
     if ( sc->comment!=NULL ) {
 	int left = sizeof(space)/sizeof(space[0]) - u_strlen(space)-1;
 	if ( left>4 ) {
@@ -7103,8 +7072,7 @@ void FontViewRemove(FontView *fv) {
 	for ( n=fv_list; n->b.next!=&fv->b; n=(FontView *) (n->b.next) );
 	n->b.next = fv->b.next;
     }
-    if ( fv_list!=NULL )		/* Freeing a large font can take forever, and if we're just going to exit there's no real reason to do so... */
-	FontViewFree(&fv->b);
+    FontViewFree(&fv->b);
 }
 
 static int fv_e_h(GWindow gw, GEvent *event) {
@@ -7494,39 +7462,12 @@ return( -1 );
 return( fv->rowoff*fv->colcnt );
 }
 
-int FontViewFind_byXUID( FontView* fv, void* udata )
-{
-    if( !fv || !fv->b.sf )
-	return 0;
-    return !strcmp( fv->b.sf->xuid, (char*)udata );
-}
-
-int FontViewFind_byXUIDConnected( FontView* fv, void* udata )
-{
-    if( !fv || !fv->b.sf )
-	return 0;
-    return ( fv->b.collabState == cs_server || fv->b.collabState == cs_client )
-	&& !strcmp( fv->b.sf->xuid, (char*)udata );
-}
-
-int FontViewFind_byCollabPtr( FontView* fv, void* udata )
-{
-    if( !fv || !fv->b.sf )
-	return 0;
-    return fv->b.collabClient == udata;
-}
 
 
-FontView* FontViewFind( int (*testFunc)( FontView*, void* udata ), void* udata )
-{
-    FontView *fv;
-    for ( fv=fv_list; fv!=NULL; fv=(FontView *) (fv->b.next) )
-    {
-	if( testFunc( fv, udata ))
-	    return fv;
-    }
-    return 0;
-}
+
+
+
+
 
 
 static FontViewBase *FVAny(void) { return (FontViewBase *) fv_list; }
@@ -8058,6 +7999,60 @@ char *GlyphSetFromSelection(SplineFont *sf,int def_layer,char *current) {
     GDrawDestroyWindow(gs.gw);
 return( ret );
 }
+
+
+/****************************************/
+/****************************************/
+/****************************************/
+
+
+int FontViewFind_byXUID( FontViewBase* fv, void* udata )
+{
+    if( !fv || !fv->sf )
+	return 0;
+    return !strcmp( fv->sf->xuid, (char*)udata );
+}
+
+int FontViewFind_byXUIDConnected( FontViewBase* fv, void* udata )
+{
+    if( !fv || !fv->sf )
+	return 0;
+    return ( fv->collabState == cs_server || fv->collabState == cs_client )
+	&& !strcmp( fv->sf->xuid, (char*)udata );
+}
+
+int FontViewFind_byCollabPtr( FontViewBase* fv, void* udata )
+{
+    if( !fv || !fv->sf )
+	return 0;
+    return fv->collabClient == udata;
+}
+
+int FontViewFind_bySplineFont( FontViewBase* fv, void* udata )
+{
+    if( !fv || !fv->sf )
+	return 0;
+    return fv->sf == udata;
+}
+
+FontViewBase* FontViewFind( int (*testFunc)( FontViewBase*, void* udata ), void* udata )
+{
+    FontViewBase *fv;
+    printf("FontViewFind(top) fv_list:%p\n", fv_list );
+    for ( fv=fv_list; fv!=NULL; fv=fv->next )
+    {
+	if( testFunc( fv, udata ))
+	    return fv;
+    }
+    return 0;
+}
+
+
+/****************************************/
+/****************************************/
+/****************************************/
+
+
 
 /* local variables: */
 /* tab-width: 8     */

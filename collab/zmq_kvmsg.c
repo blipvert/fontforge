@@ -51,12 +51,28 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //  kvmsg class - key-value message class for example applications
 										
 #include "zmq_kvmsg.h"
+#if !defined(__MINGW32__)
 #include <uuid/uuid.h>
+#endif
 #include "zlist.h"
 
 #include <glib.h>
+#include <inttypes.h>
 
 #define DEBUG zclock_log
+
+int collabclient_getDefaultBasePort()
+{
+    return 5556;
+}
+
+char* collabclient_makeAddressString( char* address, int port )
+{
+    static char ret[PATH_MAX+1];
+    snprintf(ret,PATH_MAX,"tcp://%s:%d",address,port);
+    return ret;
+}
+
 
 //  Keys are short strings
 #define KVMSG_KEY_MAX   255
@@ -452,6 +468,7 @@ kvmsg_set_uuid (kvmsg_t *self)
 {
     assert (self);
     zmq_msg_t *msg = &self->frame [FRAME_UUID];
+#if !defined(__MINGW32__)
     uuid_t uuid;
     uuid_generate (uuid);
     if (self->present [FRAME_UUID])
@@ -459,6 +476,7 @@ kvmsg_set_uuid (kvmsg_t *self)
     zmq_msg_init_size (msg, sizeof (uuid));
     memcpy (zmq_msg_data (msg), uuid, sizeof (uuid));
     self->present [FRAME_UUID] = 1;
+#endif
 }
 
 

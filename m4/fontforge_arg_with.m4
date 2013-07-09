@@ -33,6 +33,7 @@ AC_DEFUN([FONTFORGE_ARG_WITH],
 
 dnl FONTFORGE_ARG_WITH_LIBNAMESLIST
 dnl -------------------------------
+dnl Check if libuninameslist exists, and if yes, then also see if it has 3 newer functions in it
 AC_DEFUN([FONTFORGE_ARG_WITH_LIBUNINAMESLIST],
 [
    FONTFORGE_ARG_WITH_BASE([libuninameslist],
@@ -41,11 +42,12 @@ AC_DEFUN([FONTFORGE_ARG_WITH_LIBUNINAMESLIST],
       [FONTFORGE_WARN_PKG_NOT_FOUND([LIBUNINAMESLIST])],
       [_NO_LIBUNINAMESLIST],
       [
-       FONTFORGE_SEARCH_LIBS([uniNamesList_name],[uninameslist],
+       FONTFORGE_SEARCH_LIBS([UnicodeNameAnnot],[uninameslist],
          [i_do_have_libuninameslist=yes
           AC_SUBST([LIBUNINAMESLIST_CFLAGS],[""])
           AC_SUBST([LIBUNINAMESLIST_LIBS],["${found_lib}"])
-          FONTFORGE_WARN_PKG_FALLBACK([LIBUNINAMESLIST])],
+          AC_CHECK_FUNC([uniNamesList_NamesListVersion],[AC_DEFINE([_LIBUNINAMESLIST_FUN],
+                        [1],[Libuninameslist library has 3 new functions.])])],
          [i_do_have_libuninameslist=no])
        ])
 ])
@@ -55,19 +57,35 @@ dnl FONTFORGE_ARG_WITH_LIBUNICODENAMES
 dnl ----------------------------------
 AC_DEFUN([FONTFORGE_ARG_WITH_LIBUNICODENAMES],
 [
-   FONTFORGE_ARG_WITH_BASE([libunicodenames],
-      [AS_HELP_STRING([--without-libunicodenames],[build without Unicode Name or Annotation support - incase libuninameslist not found])],
-      [libunicodenames],
-      [FONTFORGE_WARN_PKG_NOT_FOUND([LIBUNICODENAMES])],
-      [_NO_LIBUNICODENAMES],
-      [
-       FONTFORGE_SEARCH_LIBS([uninm_names_db_open],[unicodenames],
-         [i_do_have_libunicodenames=yes
-          AC_SUBST([LIBUNICODENAMES_CFLAGS],[""])
-          AC_SUBST([LIBUNICODENAMES_LIBS],["${found_lib}"])
-          FONTFORGE_WARN_PKG_FALLBACK([LIBUNICODENAMES])],
-         [i_do_have_libunicodenames=no])
-       ])
+AC_ARG_VAR([LIBUNICODENAMES_CFLAGS],[C compiler flags for LIBUNICODENAMES, overriding the automatic detection])
+AC_ARG_VAR([LIBUNICODENAMES_LIBS],[linker flags for LIBUNICODENAMES, overriding the automatic detection])
+AC_ARG_WITH([libunicodenames],[AS_HELP_STRING([--without-libunicodenames],
+	    [build without Unicode Name or Annotation support])],
+	    [i_do_have_libunicodenames="${withval}"],[i_do_have_libunicodenames=yes])
+if test x"${i_do_have_libunicodenames}" = xyes -a x"${LIBUNICODENAMES_LIBS}" = x; then
+   FONTFORGE_SEARCH_LIBS([uninm_names_db_open],[unicodenames],
+		  [LIBUNICODENAMES_LIBS="${LIBUNICODENAMES_LIBS} ${found_lib}"],
+		  [i_do_have_libunicodenames=no])
+   if test x"${i_do_have_libunicodenames}" != xyes; then
+      i_do_have_libunicodenames=yes
+      unset ac_cv_search_uninm_names_db_open
+      FONTFORGE_SEARCH_LIBS([uninm_names_db_open],[unicodenames],
+		     [LIBUNICODENAMES_LIBS="${LIBUNICODENAMES_LIBS} ${found_lib} -lunicodenames"],
+                     [i_do_have_libunicodenames=no],
+		     [-lunicodenames])
+   fi
+fi
+if test x"${i_do_have_libunicodenames}" = xyes -a x"${LIBUNICODENAMES_CFLAGS}" = x; then
+   AC_CHECK_HEADER([libunicodenames.h],[AC_SUBST([LIBUNICODENAMES_CFLAGS],[""])],[i_do_have_libunicodenames=no])
+fi
+if test x"${i_do_have_libunicodenames}" = xyes; then
+   if test x"${LIBUNICODENAMES_LIBS}" != x; then
+      AC_SUBST([LIBUNICODENAMES_LIBS],["${LIBUNICODENAMES_LIBS}"])
+   fi
+else
+   FONTFORGE_WARN_PKG_NOT_FOUND([LIBUNICODENAMES])
+   AC_DEFINE([_NO_LIBUNICODENAMES],1,[Define if not using libunicodenames.])
+fi
 ])
 
 
@@ -140,13 +158,25 @@ AC_ARG_WITH([libreadline],[AS_HELP_STRING([--without-libreadline],[build without
             [i_do_have_libreadline="${withval}"],[i_do_have_libreadline=yes])
 if test x"${i_do_have_libreadline}" = xyes -a x"${LIBREADLINE_LIBS}" = x; then
    FONTFORGE_SEARCH_LIBS([rl_readline_version],[readline],
-                  [AC_SUBST([LIBREADLINE_LIBS],["${found_lib}"])],
+		  [LIBREADLINE_LIBS="${LIBREADLINE_LIBS} ${found_lib}"],
                   [i_do_have_libreadline=no])
+   if test x"${i_do_have_libreadline}" != xyes; then
+      i_do_have_libreadline=yes
+      unset ac_cv_search_rl_readline_version
+      FONTFORGE_SEARCH_LIBS([rl_readline_version],[readline],
+		     [LIBREADLINE_LIBS="${LIBREADLINE_LIBS} ${found_lib} -ltermcap"],
+                     [i_do_have_libreadline=no],
+		     [-ltermcap])
+   fi
 fi
 if test x"${i_do_have_libreadline}" = xyes -a x"${LIBREADLINE_CFLAGS}" = x; then
    AC_CHECK_HEADER([readline/readline.h],[AC_SUBST([LIBREADLINE_CFLAGS],[""])],[i_do_have_libreadline=no])
 fi
-if test x"${i_do_have_libreadline}" != xyes; then
+if test x"${i_do_have_libreadline}" = xyes; then
+   if test x"${LIBREADLINE_LIBS}" != x; then
+      AC_SUBST([LIBREADLINE_LIBS],["${LIBREADLINE_LIBS}"])
+   fi
+else
    FONTFORGE_WARN_PKG_NOT_FOUND([LIBREADLINE])
    AC_DEFINE([_NO_LIBREADLINE],1,[Define if not using libreadline.])
 fi
@@ -169,7 +199,9 @@ FONTFORGE_ARG_WITH_BASE([libspiro],
          [i_do_have_libspiro=yes
           AC_SUBST([LIBSPIRO_CFLAGS],[""])
           AC_SUBST([LIBSPIRO_LIBS],["${found_lib}"])
-          FONTFORGE_WARN_PKG_FALLBACK([LIBSPIRO])],
+          FONTFORGE_WARN_PKG_FALLBACK([LIBSPIRO])
+          AC_CHECK_FUNC([TaggedSpiroCPsToBezier0],[AC_DEFINE([_LIBSPIRO_FUN],
+                        [1],[Libspiro returns true or false.])])],
          [i_do_have_libspiro=no])
    ])
 ])

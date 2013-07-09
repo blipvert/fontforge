@@ -118,7 +118,6 @@ AC_PROG_SED
 PKG_PROG_PKG_CONFIG
 AC_PATH_PROG([MSGFMT],[msgfmt],[msgfmt])
 AC_PATH_PROG([XGETTEXT],[xgettext],[xgettext])
-AC_PATH_PROG([CPROTO],[cproto],[cproto])
 AC_PATH_PROG([INDENT],[indent],[indent])
 AC_PATH_PROG([UNZIP],[unzip],[unzip])
 AC_PATH_PROG([UPDATE_MIME_DATABASE],[update-mime-database],[update-mime-database])
@@ -170,6 +169,10 @@ FONTFORGE_ARG_ENABLE([tile-path],
                 [enable a 'tile path' command (a variant of 'expand stroke')])],
         [FONTFORGE_CONFIG_TILEPATH])
 
+FONTFORGE_ARG_DISABLE([link-test],
+        [AS_HELP_STRING([--disable-link-test],[disable the link test during build. Handy for cross compiling])],
+        [_NO_FFLINKTEST])
+AM_CONDITIONAL([BUILD_LINK_TEST],[test x"${i_do_have_link_test}" = xyes])
 
 ##################
 # Theme selection.
@@ -257,6 +260,15 @@ FONTFORGE_ARG_WITH_ICONV
 FONTFORGE_ARG_WITH_ZEROMQ
 FONTFORGE_ARG_WITH_LIBREADLINE
 
+if test x"${i_do_have_x}" = xyes; then
+   AC_DEFINE(HAVE_GUI,[1],[Have GUI])
+fi
+if test x"${i_do_have_x}" = xyes; then
+   if test x"${i_do_have_libzmq}" = xyes; then 
+      AC_DEFINE(BUILD_COLLAB,[1],[Build the Collab Code])
+   fi
+fi
+
 # We have both libraries but did not choose which one to use yet
 if test x"${i_do_have_libuninameslist}" = xyes; then
    if test x"${i_do_have_libunicodenames}" = xyes; then
@@ -288,7 +300,6 @@ fi
 # Checks for typedefs, structures, and compiler characteristics.
 
 AC_C_BIGENDIAN
-AC_HEADER_STDBOOL
 AC_TYPE_INT16_T
 AC_TYPE_INT32_T
 AC_TYPE_INT8_T
@@ -306,6 +317,9 @@ fi
 AX_PTHREAD
 
 #--------------------------------------------------------------------------
+AC_LANG_PUSH([C]) dnl NOTE: try not to push/pop too often
+# Check to see if "this" compiler can use these flags and/or warnings.
+# Enable the flags that can be used and skip flags that are unknown.
 FONTFORGE_COMPILER_FLAGS([WARNING_CFLAGS],
         [-Wunused -Wreturn-type
          -Wparentheses -Wformat -Wchar-subscripts
@@ -317,7 +331,7 @@ FONTFORGE_COMPILER_FLAGS([WARNING_CFLAGS],
          -Werror=implicit])
 # Sep2012, There's a bug in <py3 with Py_True/False that will propagate
 # with GCC's "strict-aliasing" rules. -Wstrict-aliasing
-
+AC_LANG_POP
 #--------------------------------------------------------------------------
 # Bypass older autoscan recommendations (if anyone decides to run autoscan)
 # These packages promises to not use malloc(0) or realloc(n, 0) so we don't

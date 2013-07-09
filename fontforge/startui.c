@@ -27,6 +27,11 @@
 
 #include <fontforge-config.h>
 #include "fontforgeui.h"
+#ifndef _NO_LIBUNICODENAMES
+#include <libunicodenames.h>	/* need to open a database when we start */
+extern uninm_names_db names_db; /* Unicode character names and annotations database */
+extern uninm_blocks_db blocks_db;
+#endif
 #include <gfile.h>
 #include <gresource.h>
 #include <ustring.h>
@@ -42,10 +47,6 @@
 #include "../gdraw/hotkeys.h"
 #include "gutils/prefs.h"
 
-#ifndef _NO_LIBUNICODENAMES
-#include <libunicodenames.h>	/* need to open a database when we start */
-extern uninm_names_db names_db; /* Unicode character names and annotations database */
-#endif
 
 #define GTimer GTimer_GTK
 #include <glib.h>
@@ -83,7 +84,7 @@ extern void RunApplicationEventLoop(void);
 #define sleep(n) Sleep(1000 * (n))
 #endif
 
-#include "collabclient.h"
+#include "collabclientui.h"
 
 extern int AutoSaveFrequency;
 int splash = 1;
@@ -705,15 +706,15 @@ static int uses_local_x(int argc,char **argv) {
     for ( i=1; i<argc; ++i ) {
 	arg = argv[i];
 	if ( *arg=='-' ) {
-	    if ( arg[0]=='-' && arg[1]=='-' )
+	    if ( arg[0]=='-' && arg[1]=='-' && arg[2]!='\0')
 		++arg;
 	    if ( strcmp(arg,"-display")==0 )
 return( i+1<argc && strcmp(argv[i+1],":0")!=0 && strcmp(argv[i+1],":0.0")!=0? 2 : 0 );
-	    if ( strcmp(arg,"-c")==0 )
+	    if ( strcmp(argv[i],"-c")==0 )
 return( false );		/* we use a script string, no x display at all */
 	    if ( strcmp(arg,"-script")==0 )
 return( false );		/* we use a script, no x display at all */
-	    if ( strcmp(arg,"-")==0 )
+	    if ( strcmp(argv[i],"-")==0 )
 return( false );		/* script on stdin */
 	} else {
 	    /* Is this argument a script file ? */
@@ -781,6 +782,15 @@ static void ensureDotFontForgeIsSetup() {
     ffensuredir( basedir, ".FontForge/python", S_IRWXU );
 }
 
+static void DoAutoRecoveryPostRecover_PromptUserGraphically(SplineFont *sf)
+{
+    /* Ask user to save-as file */
+    char *buts[4];
+    buts[0] = _("_OK");
+    buts[1] = 0;
+    gwwv_ask( _("Recovery Complete"),(const char **) buts,0,1,_("Your file %s has been recovered.\nYou must now Save your file to continue working on it."), sf->filename );
+    _FVMenuSaveAs( (FontView*)sf->fv );
+}
 
 
 int fontforge_main( int argc, char **argv ) {
@@ -950,21 +960,6 @@ int fontforge_main( int argc, char **argv ) {
     bindtextdomain("FontForge", getLocaleDir());
     textdomain("FontForge");
     GResourceUseGetText();
-#if defined(__MINGW32__)
-    {
-	size_t len = strlen(GResourceProgramDir);
-	char*  path = galloc(len + 64);
-	strcpy(path, GResourceProgramDir);
-
-	strcpy(path+len, "/share/fontforge/pixmaps"); /* PixmapDir */
-	GGadgetSetImageDir(path);
-
-	strcpy(path+len, "/share/fontforge/resources/fontforge.resource"); /* Resource File */
-	GResourceAddResourceFile(path, GResourceProgramName, false);
-
-	gfree(path);
-    }
-#else
     {
 	char shareDir[PATH_MAX];
 	char* sd = getShareDir();
@@ -980,7 +975,6 @@ int fontforge_main( int argc, char **argv ) {
 	snprintf(path, PATH_MAX, "%s%s", shareDir, "/resources/fontforge.resource" );
 	GResourceAddResourceFile(path, GResourceProgramName,false);
     }
-#endif
     hotkeysLoad();
 //    loadPrefsFiles();
     Prefs_LoadDefaultPreferences();
@@ -991,6 +985,11 @@ int fontforge_main( int argc, char **argv ) {
 	default_encoding=FindOrMakeEncoding("ISO8859-1");
     if ( default_encoding==NULL )
 	default_encoding=&custom;	/* In case iconv is broken */
+
+    // This check also starts the embedded python,
+    // we must call PythonUI_Init() before CheckIsScript()
+    // to allow GUI code to potentially add extra methods to the
+    // python objects.
     CheckIsScript(argc,argv); /* Will run the script and exit if it is a script */
 					/* If there is no UI, there is always a script */
 			                /*  and we will never return from the above */
@@ -1147,7 +1146,11 @@ exit( 0 );
     if ( recover==-1 )
 	CleanAutoRecovery();
     else if ( recover )
-	any = DoAutoRecovery(recover-1);
+    {
+	any = DoAutoRecoveryExtended( recover-1,
+				      DoAutoRecoveryPostRecover_PromptUserGraphically );
+    }
+    
 
     openflags = 0;
     for ( i=1; i<argc; ++i ) {
@@ -1155,7 +1158,7 @@ exit( 0 );
 	char *pt = argv[i];
 
 	GDrawProcessPendingEvents(NULL);
-	if ( pt[0]=='-' && pt[1]=='-' )
+	if ( pt[0]=='-' && pt[1]=='-' && pt[2]!='\0')
 	    ++pt;
 	if ( strcmp(pt,"-new")==0 ) {
 	    FontNew();
@@ -1249,6 +1252,7 @@ exit( 0 );
 
 #ifndef _NO_LIBUNICODENAMES
     uninm_names_db_close(names_db);	/* close this database before exiting */
+    uninm_blocks_db_close(blocks_db);
 #endif
 
     lt_dlexit();
