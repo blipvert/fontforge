@@ -85,7 +85,7 @@ void GDrawSetDefaultIcon(GWindow icon) {
 
 GWindow GDrawCreateTopWindow(GDisplay *gdisp, GRect *pos,
 	int (*eh)(GWindow,GEvent *), void *user_data, GWindowAttrs *wattrs) {
-    if ( gdisp==NULL ) gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return NULL;
 return( (gdisp->funcs->createTopWindow)(gdisp,pos,eh,user_data,wattrs) );
 }
 
@@ -95,12 +95,12 @@ return( (w->display->funcs->createSubWindow)(w,pos,eh,user_data,wattrs) );
 }
 
 GWindow GDrawCreatePixmap(GDisplay *gdisp, uint16 width, uint16 height) {
-    if ( gdisp==NULL ) gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return NULL;
 return( (gdisp->funcs->createPixmap)(gdisp,width,height));
 }
 
 GWindow GDrawCreateBitmap(GDisplay *gdisp, uint16 width, uint16 height, uint8 *data) {
-    if ( gdisp==NULL ) gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return NULL;
 return( (gdisp->funcs->createBitmap)(gdisp,width,height,data));
 }
 
@@ -118,12 +118,12 @@ void GDrawSetZoom(GWindow w,GRect *zoom, enum gzoom_flags flags) {
 }
 
 void GDrawDestroyCursor(GDisplay *gdisp, GCursor ct) {
-    if ( gdisp==NULL ) gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return;
     (gdisp->funcs->destroyCursor)(gdisp,ct);
 }
 
 int GDrawNativeWindowExists(GDisplay *gdisp, void *native) {
-    if ( gdisp==NULL ) gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return 0;
 return( (gdisp->funcs->nativeWindowExists)(gdisp,native) );
 }
 
@@ -136,7 +136,7 @@ void GDrawSetWindowBorder(GWindow w,int width,Color col) {
 }
 
 int GDrawSetDither(GDisplay *gdisp, int dither) {
-    if ( gdisp==NULL ) gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return 0;
 return( (gdisp->funcs->setDither)(gdisp,dither) );
 }
 
@@ -173,17 +173,17 @@ void GDrawMoveResize(GWindow w, int32 x, int32 y, int32 width, int32 height) {
 }
 
 GWindow GDrawGetRoot(GDisplay *gdisp) {
-    if ( gdisp==NULL ) gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return NULL;
 return(gdisp->groot);
 }
 
 Color GDrawGetDefaultBackground(GDisplay *gdisp) {
-    if ( gdisp==NULL ) gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return 0;
 return(gdisp->def_background);
 }
 
 Color GDrawGetDefaultForeground(GDisplay *gdisp) {
-    if ( gdisp==NULL ) gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return 0;
 return(gdisp->def_foreground);
 }
 
@@ -320,12 +320,12 @@ return( gw->display );
 }
 
 void GDrawBeep(GDisplay *gdisp) {
-    if ( gdisp==NULL ) gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return;
     (gdisp->funcs->beep)(gdisp);
 }
 
 void GDrawFlush(GDisplay *gdisp) {
-    if ( gdisp==NULL ) gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return;
     (gdisp->funcs->flush)(gdisp);
 }
 
@@ -748,12 +748,12 @@ void GDrawForceUpdate(GWindow w) {
 }
 
 void GDrawSync(GDisplay *gdisp) {
-    if ( gdisp==NULL ) gdisp=screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return;
     (gdisp->funcs->sync)(gdisp);
 }
 
 void GDrawPointerUngrab(GDisplay *gdisp) {
-    if ( gdisp==NULL ) gdisp=screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return;
     (gdisp->funcs->pointerUngrab)(gdisp);
 }
 
@@ -762,7 +762,7 @@ void GDrawPointerGrab(GWindow w) {
 }
 
 void GDrawProcessOneEvent(GDisplay *gdisp) {
-    if ( gdisp==NULL ) gdisp=screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return;
     (gdisp->funcs->processOneEvent)(gdisp);
 }
 
@@ -771,7 +771,7 @@ void GDrawSkipMouseMoveEvents(GWindow w,GEvent *last) {
 }
 
 void GDrawProcessPendingEvents(GDisplay *gdisp) {
-    if ( gdisp==NULL ) gdisp=screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return;
     (gdisp->funcs->processPendingEvents)(gdisp);
 }
 
@@ -780,13 +780,13 @@ void GDrawProcessWindowEvents(GWindow w) {
 }
 
 void GDrawEventLoop(GDisplay *gdisp) {
-    if ( gdisp==NULL ) gdisp=screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return;
     (gdisp->funcs->eventLoop)(gdisp);
 }
 
 void GDrawPostEvent(GEvent *e) {
     GDisplay *gdisp = e->w->display;
-    if ( gdisp==NULL ) gdisp=screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return;
     (gdisp->funcs->postEvent)(e);
 }
 
@@ -809,8 +809,7 @@ return;
 }
 
 void GDrawSyncThread(GDisplay *gdisp, void (*func)(void *), void *data) {
-    if ( gdisp==NULL )
-	gdisp = screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return;
     (gdisp->funcs->syncThread)(gdisp,func,data);
 }
 
@@ -939,7 +938,7 @@ exit(1);
 
 void *GDrawNativeDisplay(GDisplay *gdisp) {
     if ( gdisp==NULL )
-	gdisp=screen_display;
+	gdisp = screen_display;
     if ( gdisp==NULL )
 return( NULL );
 
@@ -992,8 +991,7 @@ void
 GDrawRemoveReadFD( GDisplay *gdisp,
 		   int fd, void* udata )
 {
-    if ( gdisp==NULL )
-	gdisp=screen_display;
+    if (( gdisp = gdisp ? gdisp : screen_display) == NULL) return;
     if( !fd )
 	return;
     

@@ -2636,6 +2636,153 @@ static void bCopyFgToBg(Context *c) {
     FVCopyFgtoBg(c->curfv);
 }
 
+static void bAddLayer(Context *c)
+{
+    if ( c->a.argc == 3 || c->a.argc == 4) {
+	if (c->a.vals[1].type == v_str) {
+	    char *name = c->a.vals[1].u.sval;
+	    int order2 = 0;
+	    if (c->a.vals[2].type == v_real) {
+		c->a.vals[2].u.ival = (int)c->a.vals[2].u.fval;
+		c->a.vals[2].type = v_int;
+	    }
+	    if (c->a.vals[2].type == v_int) {
+		switch (c->a.vals[2].u.ival) {
+		case 2:
+		    order2 = 1;
+		    /* fall through */
+		case 3:
+		{
+		    int lcnt = c->curfv->sf->layer_cnt;
+		    SFAddLayer(c->curfv->sf, name, order2,
+			       c->a.argc == 4 && c->a.vals[3].u.ival);
+		    if (lcnt == c->curfv->sf->layer_cnt) {
+			ScriptError(c, "Failed to add layer");
+		    }
+		    break;
+		}
+		default:
+		    ScriptError(c, "Order must be 2 or 3");
+		    break;
+		}
+	    } else {
+		ScriptError(c,"Bad argument 2 type in AddLayer");
+	    }
+	} else {
+	    ScriptError(c,"Bad argument 1 type in AddLayer");
+	}
+    } else {
+	ScriptError( c, "Wrong number of arguments");
+    }
+}
+
+static int _GetLayerByName(SplineFont *sf, const char *name)
+{
+    int ly = -1;
+
+    if (name) {
+	int i;
+
+	for (i = 0; i < sf->layer_cnt; ++i) {
+	    if (sf->layers[i].name && !strcmp(name, sf->layers[i].name)) {
+		ly = i;
+		break;
+	    }
+	}
+    }
+    return ly;
+}
+
+static void bRemoveLayer(Context *c)
+{
+    if ( c->a.argc == 2) {
+	int ly = -1;
+	int lcnt = c->curfv->sf->layer_cnt;
+	
+	if (c->a.vals[1].type == v_real) {
+	    ly = (int)c->a.vals[1].u.fval;
+	}
+	else if (c->a.vals[1].type == v_int) {
+	    ly = c->a.vals[1].u.ival;
+	}
+	else if (c->a.vals[1].type == v_str)
+	{
+	    ly = _GetLayerByName(c->curfv->sf, c->a.vals[1].u.sval);
+	}
+
+	if (ly >= 0 && ly < lcnt) {
+	    SFRemoveLayer(c->curfv->sf, ly);
+	    if (lcnt == c->curfv->sf->layer_cnt) {
+		ScriptError(c, "Failed to remove layer");
+	    }
+	} else {
+	    switch (c->a.vals[1].type) {
+	    case v_str:
+		ScriptError( c, "Layer not found");
+		break;
+	    case v_int:
+	    case v_real:
+		ScriptError( c, "Layer number out of bounds");
+		break;
+	    default:
+		ScriptError(c,"Bad argument 1 type in RemoveLayer");
+		break;
+	    }
+	}
+    } else {
+	ScriptError( c, "Wrong number of arguments");
+    }
+}
+
+static void bCopyLayerToLayer(Context *c)
+{
+    if (c->a.argc == 4 ) {
+	int lyfrom = -1, lyto = -1;
+
+	if (c->a.vals[1].type == v_real) {
+	    lyfrom = (int)c->a.vals[1].u.fval;
+	}
+	else if (c->a.vals[1].type == v_int) {
+	    lyfrom = c->a.vals[1].u.ival;
+	}
+	else if (c->a.vals[1].type == v_str)
+	{
+	    lyfrom = _GetLayerByName(c->curfv->sf, c->a.vals[1].u.sval);
+	}
+
+	if (c->a.vals[2].type == v_real) {
+	    lyto = (int)c->a.vals[2].u.fval;
+	}
+	else if (c->a.vals[2].type == v_int) {
+	    lyto = c->a.vals[2].u.ival;
+	}
+	else if (c->a.vals[2].type == v_str)
+	{
+	    lyto = _GetLayerByName(c->curfv->sf, c->a.vals[2].u.sval);
+	}
+
+	if (lyfrom > 0) {
+	    if (lyto > 0) {
+		int i, gid;
+		
+		for ( i=0; i<c->curfv->map->enccount; ++i ) {
+		    if ( c->curfv->selected[i] && (gid = c->curfv->map->map[i])!=-1 &&
+			c->curfv->sf->glyphs[gid]!=NULL ) {
+			SCCopyLayerToLayer(c->curfv->sf->glyphs[gid], lyfrom, lyto,
+					   c->a.vals[3].u.ival);
+		    }
+		}
+	    } else {
+		ScriptError(c,"Invalid argument 2 to CopyLayerToLayer");
+	    }
+	} else {
+	    ScriptError(c,"Invalid argument 1 to CopyLayerToLayer");
+	}
+    } else {
+	ScriptError( c, "Wrong number of arguments");
+    }
+}
+
 static void bUnlinkReference(Context *c) {
     if ( c->a.argc!=1 )
 	ScriptError( c, "Wrong number of arguments");
@@ -8542,6 +8689,9 @@ static struct builtins { char *name; void (*func)(Context *); int nofontok; } bu
     { "Clear", bClear, 0 },
     { "ClearBackground", bClearBackground, 0 },
     { "CopyFgToBg", bCopyFgToBg, 0 },
+    { "AddLayer", bAddLayer, 0 },
+    { "RemoveLayer", bRemoveLayer, 0 },
+    { "CopyLayerToLayer", bCopyLayerToLayer, 0 },
     { "UnlinkReference", bUnlinkReference, 0 },
     { "Join", bJoin, 0 },
     { "SelectAll", bSelectAll, 0 },
