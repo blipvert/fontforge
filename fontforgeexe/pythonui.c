@@ -50,6 +50,7 @@
 #include <sys/types.h>
 #include <dirent.h>
 #include <stdarg.h>
+#include <fcntl.h>
 #include "ffpython.h"
 
 #include "gnetwork.h"
