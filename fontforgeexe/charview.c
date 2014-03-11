@@ -1316,6 +1316,21 @@ static void CVMarkAlmostHV(CharView *cv, GWindow pixmap,
     }
 }
 
+static void CVDrawPointName(CharView *cv, GWindow pixmap, SplinePoint *sp, Color fg)
+{
+    if (sp->name && *sp->name) {
+	int32 theight;
+
+	GDrawSetFont(pixmap, cv->normal);
+	theight = GDrawGetText8Height(pixmap, sp->name, -1);
+	GDrawDrawText8(pixmap,
+		       cv->xoff + rint(sp->me.x*cv->scale),
+		       cv->height-cv->yoff - rint(sp->me.y*cv->scale) + theight + 3,
+		       sp->name,-1,fg);
+	GDrawSetFont(pixmap,cv->small);	/* For point numbers */
+    }
+}
+
 static void CVDrawContourName(CharView *cv, GWindow pixmap, SplinePointList *ss,
 	Color fg ) {
     SplinePoint *sp, *topright;
@@ -1542,10 +1557,13 @@ void CVDrawSplineSetSpecialized( CharView *cv, GWindow pixmap, SplinePointList *
 	    } else {
 		for ( spline = spl->first->next; spline!=NULL && spline!=first; spline=spline->to->next ) {
 		    DrawPoint(cv,pixmap,spline->from,spl,dopoints<0,truetype_markup, AlphaChannelOverride );
+		    CVDrawPointName(cv,pixmap,spline->from,fg);
 		    if ( first==NULL ) first = spline;
 		}
-		if ( spline==NULL )
+		if ( spline==NULL ) {
 		    DrawPoint(cv,pixmap,spl->last,spl,dopoints<0,truetype_markup, AlphaChannelOverride );
+		    CVDrawPointName(cv,pixmap,spline->from,fg);
+		}
 	    }
 	}
     }
