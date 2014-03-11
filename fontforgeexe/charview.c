@@ -9912,22 +9912,16 @@ static void CVMenuMakeLine(GWindow gw, struct gmenuitem *mi, GEvent *e) {
     _CVMenuMakeLine((CharViewBase *) cv,mi->mid==MID_MakeArc, e!=NULL && (e->u.mouse.state&ksm_meta));
 }
 
-void _CVMenuNamePoint(CharView *cv) {
-    SplinePointList *spl;
-    SplinePoint *sp;
-    RefChar *r;
-    ImageList *il;
-    spiro_cp *junk;
-    char *ret;
+void _CVMenuNamePoint(CharView *cv, SplinePoint *sp) {
+    char *ret, *name, *oldname;
 
-    if ( CVOneThingSel( cv, &sp, &spl, &r, &il, NULL, &junk ) && sp) {
-	ret = gwwv_ask_string(_("Name this point"),sp->name,
+    oldname = (sp->name && *sp->name) ? sp->name : NULL;
+    ret = gwwv_ask_string(_("Name this point"), oldname,
 			      _("Please name this point"));
-	if ( ret!=NULL ) {
-	    if ( *ret == '\0' )
-		sp->name = NULL;
-	    else
-		sp->name = ret;
+    if ( ret!=NULL ) {
+	name = *ret ? ret : NULL;
+	if (name != oldname || (name && oldname && strcmp(name,oldname))) {
+	    sp->name = name;
 	    CVCharChangedUpdate(&cv->b);
 	}
     }
@@ -9935,7 +9929,15 @@ void _CVMenuNamePoint(CharView *cv) {
 
 static void CVMenuNamePoint(GWindow gw, struct gmenuitem *UNUSED(mi), GEvent *UNUSED(e)) {
     CharView *cv = (CharView *) GDrawGetUserData(gw);
-    _CVMenuNamePoint(cv);
+    SplinePointList *spl;
+    SplinePoint *sp;
+    RefChar *r;
+    ImageList *il;
+    spiro_cp *junk;
+
+    if ( CVOneThingSel( cv, &sp, &spl, &r, &il, NULL, &junk ) && sp) {
+	_CVMenuNamePoint(cv, sp);
+    }
 }
 
 void _CVMenuNameContour(CharView *cv) {

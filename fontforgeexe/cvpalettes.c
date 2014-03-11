@@ -3064,8 +3064,8 @@ static void CVPopupSelectInvoked(GWindow v, GMenuItem *mi, GEvent *e) {
 	break;
     }
     case MID_NamePoint: {
-	CharView *cv = (CharView *) GDrawGetUserData(v);
-	_CVMenuNamePoint( cv );
+	if ( cv->p.sp )
+	    _CVMenuNamePoint( cv, cv->p.sp );
 	break;
     }
     case MID_NameContour: {
@@ -3211,6 +3211,16 @@ void CVToolsPopup(CharView *cv, GEvent *event) {
 	mi[i].ti.fg = COLOR_DEFAULT;
 	mi[i].ti.bg = COLOR_DEFAULT;
 	mi[i].mid = j;
+	mi[i].invoke = CVPopupSelectInvoked;
+	i++;
+    }
+
+    if ( anysel ) {
+	mi[i].ti.text = (unichar_t *)_("Name Point...");
+	mi[i].ti.text_is_1byte = true;
+	mi[i].ti.fg = COLOR_DEFAULT;
+	mi[i].ti.bg = COLOR_DEFAULT;
+	mi[i].mid = MID_NamePoint;
 	mi[i].invoke = CVPopupSelectInvoked;
 	i++;
     }
