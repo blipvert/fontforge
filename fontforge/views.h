@@ -1309,6 +1309,7 @@ extern void CVRegenFill(CharView *cv);
 extern void RulerDlg(CharView *cv);
 extern int  CVCountSelectedPoints(CharView *cv);
 extern void _CVMenuInsertPt(CharView *cv);
+extern void _CVMenuNamePoint(CharView *cv, SplinePoint *sp);
 extern void _CVMenuNameContour(CharView *cv);
 
 // sfd.c
