@@ -3084,22 +3084,18 @@ static void CVPopupSelectInvoked(GWindow v, GMenuItem *mi, GEvent *e) {
 	CVMakeClipPath(cv);
       break;
     case MID_MakeLine: {
-	CharView *cv = (CharView *) GDrawGetUserData(v);
 	_CVMenuMakeLine((CharViewBase *) cv,mi->mid==MID_MakeArc, e!=NULL && (e->u.mouse.state&ksm_alt));
 	break;
     }
     case MID_MakeArc: {
-	CharView *cv = (CharView *) GDrawGetUserData(v);
 	_CVMenuMakeLine((CharViewBase *) cv,mi->mid==MID_MakeArc, e!=NULL && (e->u.mouse.state&ksm_alt));
 	break;
     }
     case MID_InsertPtOnSplineAt: {
-	CharView *cv = (CharView *) GDrawGetUserData(v);
 	_CVMenuInsertPt( cv );
 	break;
     }
     case MID_NameContour: {
-	CharView *cv = (CharView *) GDrawGetUserData(v);
 	_CVMenuNameContour( cv );
 	break;
     }
