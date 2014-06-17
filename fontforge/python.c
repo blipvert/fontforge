@@ -1928,7 +1928,8 @@ return( Py_BuildValue("s", self->name ));
 
 static int PyFF_Contour_set_name(PyFF_Contour *self,PyObject *value, void *UNUSED(closure)) {
 
-    free(self->name);
+    if ( self->name != NULL)
+	free(self->name);
     if ( value==Py_None )
 	self->name = NULL;
     else {
